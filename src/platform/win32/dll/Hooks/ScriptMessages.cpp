@@ -9,6 +9,8 @@
 
 #include "../../sdk/Attila/Addresses.hpp"
 #include "../../sdk/Attila/VFSTypes.hpp"
+#include "../../sdk/Attila/Lua/LuaGameEnvironment.hpp"
+#include "../../sdk/Attila/Lua/LuaRuntime.hpp"
 
 // A message is a CCQ_SET_UNIT_CUSTOM_NAME command for unit id 0, its text "twase1|<sender faction key>|<message>"
 // (ScriptMessageFormat.hpp). The UI's player commands run on every PC in the same order (a client's included), so the
@@ -74,12 +76,39 @@ std::string LocalFactionKey()
     return key && key->data && key->length > 0 ? std::string(key->data, key->length) : std::string();
 }
 
-// A message ran on this PC
+// A message ran on this PC: the campaign script's handler (twase.set_message_handler), called the same way on every PC
 void Deliver(const Format::Message& aMessage)
 {
     spdlog::info("[ScriptMessages] ran: from {}, {} bytes: {}", aMessage.sender, aMessage.text.size(), aMessage.text);
     LuaConsole::Get().AddLog(LuaConsole::LogLevel::Info, "[ScriptMessages] ran: from %s: %s", aMessage.sender.c_str(),
                              aMessage.text.c_str());
+
+    // the campaign scripts' state, looked up each time: battles and loads replace the states
+    lua_State* L = LuaGameEnvironment::FindState(Hooks::ScriptMessagesHook::CampaignContextName);
+    if (!L)
+    {
+        spdlog::warn("[ScriptMessages] no campaign script state, the message isn't delivered");
+        return;
+    }
+    const int top = LuaRuntime::gettop(L);
+    LuaRuntime::getfield(L, LUA_REGISTRYINDEX, Hooks::ScriptMessagesHook::HandlerKey);
+    if (LuaRuntime::type(L, -1) != LUA_TFUNCTION)
+    {
+        spdlog::warn("[ScriptMessages] no message handler set (twase.set_message_handler), the message isn't delivered");
+        LuaRuntime::settop(L, top);
+        return;
+    }
+    // neither contains a NUL byte (Decode only accepts code units 1-255)
+    LuaRuntime::pushstring(L, aMessage.sender.c_str());
+    LuaRuntime::pushstring(L, aMessage.text.c_str());
+    if (LuaRuntime::pcall(L, 2, 0, 0) != 0)
+    {
+        const char* error = LuaRuntime::tolstring(L, -1, nullptr);
+        spdlog::error("[ScriptMessages] the message handler failed: {}", error ? error : "unknown error");
+        LuaConsole::Get().AddLog(LuaConsole::LogLevel::Error, "[ScriptMessages] the message handler failed: %s",
+                                 error ? error : "unknown error");
+    }
+    LuaRuntime::settop(L, top);
 }
 
 void Handler(uint8_t* reader, void* model)

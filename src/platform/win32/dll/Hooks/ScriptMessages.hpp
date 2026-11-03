@@ -14,4 +14,9 @@ bool IsReady();
 
 // Queues a message from the local faction. nullptr on success, else why it wasn't sent.
 const char* Send(std::string_view aText);
+
+// Where a message is delivered: the function in this registry field of the campaign scripts' Lua state (the state
+// whose decoda_name is CampaignContextName), set by twase.set_message_handler
+inline constexpr const char* HandlerKey = "twase_message_handler";
+inline constexpr const char* CampaignContextName = "EpisodicScriptingEnv";
 } // namespace Hooks::ScriptMessagesHook

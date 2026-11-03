@@ -864,6 +864,20 @@ int Send(lua_State* L)
     }
     return 0;
 }
+
+// twase.set_message_handler(function(sender_key, text) end | nil): called on every PC when a message runs, inside the
+// model's command processing. Kept in this state's registry; messages are delivered to the campaign scripts' state.
+int SetMessageHandler(lua_State* L)
+{
+    const int type = LuaRuntime::type(L, 1);
+    if (type != LUA_TFUNCTION && type != LUA_TNIL && type != LUA_TNONE)
+    {
+        return LuaRuntime::error(L, "twase.set_message_handler(handler): expects a function or nil");
+    }
+    LuaRuntime::settop(L, 1);
+    LuaRuntime::setfield(L, LUA_REGISTRYINDEX, Hooks::ScriptMessagesHook::HandlerKey);
+    return 0;
+}
 #endif
 
 // twase.dev_last_deal_score() -> number, the last deal score the likelihood tooltip showed
@@ -925,6 +939,7 @@ void Scripting::LuaApi::Register(lua_State* L)
     SetFunction(L, "clear_max_slots", &ClearMaxSlots);
 #if TWASE_HAS_SCRIPT_MESSAGES
     SetFunction(L, "send", &Send);
+    SetFunction(L, "set_message_handler", &SetMessageHandler);
 #endif
 
     // probes for reverse engineering, only with [dev] lua_dev_functions = true

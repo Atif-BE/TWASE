@@ -29,6 +29,8 @@ public:
     static const std::string&       GetActiveContextName();
     static bool                     SelectContext(size_t index);
     static bool                     IsContextValid();
+    // the live state whose decoda_name is aName (e.g. the campaign's), without changing the console's selection
+    static lua_State*               FindState(const char* aName);
 
     static std::vector<std::string> GetTableEntries(lua_State* L, const std::string& tablePath, bool showTypes);
 

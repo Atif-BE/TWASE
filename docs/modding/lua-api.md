@@ -1,6 +1,6 @@
 # Lua API (`twase.*`)
 
-TWASE adds a global table `twase` to the campaign's Lua environment, before it loads the [script mods](script-mods.md). It gives scripts what the game's own campaign API doesn't expose: the AI's attitude, a region's wealth breakdown, the loaded database, the localisation, and the engine's region deals.
+TWASE adds a global table `twase` to the campaign's Lua environment, before it loads the [script mods](script-mods.md). It gives scripts what the game's own campaign API doesn't expose: the AI's attitude, a region's wealth breakdown, the loaded database, the localisation, the engine's region deals, and synced script messages for multiplayer.
 
 > **Platforms:** the `twase` table is in **TWASE 1.2.0** on Windows and Mac (since 1.1.0 on Mac; only the probe `twase.dev_diplomacy_actions` is Mac only). Older versions don't have it: check with `if twase then ... end`.
 
@@ -178,6 +178,39 @@ buildings, or supply a layout for extra cards. The campaign data and UI mod must
 Both overrides belong to the game process, not to a campaign or save: they stay set when the player loads another
 save or campaign, until the game exits or a mod clears them. A mod that needs them should set them every time its
 campaign script loads (for example on `UICreated`) rather than rely on an earlier call.
+
+## Synced script messages
+
+A player's click in a multiplayer campaign happens on one PC only, and script code that changes the campaign there desyncs it. A script message solves this. One PC sends a text, and the text runs on **every** PC of the campaign at the same point of the model, sender included, like a player's command. This is what later Total War games call `UITriggerScriptEvent`. Any human player can send, host or client.
+
+> **Platforms:** Windows Steam build only (TWASE fork, not yet upstream). On the Windows GOG build `twase.send` raises an error, and a handler never fires. On Mac neither function exists. Check with `if twase and twase.send then ... end`.
+
+### `twase.send(text)`
+
+Queues `text` (a string of bytes 1-255, no NUL) from the local player's faction. It doesn't run at once: like a player's command it runs on every PC once the engine has passed it round, usually a moment later. Raises a Lua error if it can't be sent: outside a campaign, on an unsupported build, if the text is too long, or if the command queue is full.
+
+The text, the sender's faction key and 8 bytes of framing (a 7-byte marker and a separator) share 255 bytes. With a 20-character faction key that leaves 227 bytes for the text.
+
+### `twase.set_message_handler(handler)`
+
+`handler(sender_key, text)` is called on every PC when a message runs. `sender_key` is the sending player's faction key and `text` the bytes `twase.send` was given. The engine doesn't record who sent a command, so the sending PC writes its own faction key into the message. It's right for honest players, but a modified client could claim another faction: don't give it more weight than co-operative play needs. `nil` removes the handler. A mod must set it on every PC (e.g. when its campaign script loads), because a message that runs where no handler is set is only logged. There is one handler per campaign: a second call replaces the first.
+
+The handler runs inside the model's command processing, at the same point on every PC. It may change the campaign like any synced event handler, but it must decide only from what's the same on every PC: the text, the model, and saved values. Never use the local faction, the UI or `math.random` there, and never call `twase.send` from it: the handler runs on every PC, so every PC would send its own copy. Errors in the handler are logged (`[ScriptMessages]` in the TWASE log) and don't reach the sender.
+
+A PC without TWASE, or with a build without script messages, ignores the message: the engine does nothing with it (it's a rename of a unit that doesn't exist). Its scripts don't see it, so in multiplayer **every player must run the same TWASE build** before a handler may change the campaign. The same goes for whatever sets the handler: the same mods on every PC, and for loose script mods the same `auto_load_mods` setting. A PC that has no handler when a message runs only logs it.
+
+```lua
+-- every PC
+twase.set_message_handler(function(sender, text)
+    local action, data = text:match("^([%w_]+):(.*)$");
+    if action == "accept_decision" then
+        -- change the campaign here, the same way on every PC
+    end
+end);
+
+-- the PC where the player clicked
+twase.send("accept_decision:" .. decision_key);
+```
 
 ## Development probes
 
