@@ -5,13 +5,22 @@
 --   msgtest("hello")   sends a message; every PC logs it
 --   msgtest_gold(10)   sends a message that gives the sender 10 gold on every PC (a state change: if a PC missed it,
 --                      the treasuries would differ and the game would desync)
--- Every PC logs "[msgtest] ran ..." with the turn and the sender's treasury when the message ran, both synced.
+-- Every PC logs "[msgtest] ran ..." with the turn and the sender's treasury when the message ran, both synced, to
+-- twase_msgtest.log in its game folder (on the Sandboxie rig: C:\Sandbox\<user>\<box>\drive\C\AttilaTest\<name>\).
 
+-- Each line goes to twase_msgtest.log in the game folder (TWASE's own log only has the game's Lua output at debug level)
+-- and to the console. Attila's campaign log is output(); out is a table there.
 local function log(text)
-	if out then
-		out("[msgtest] " .. text);
+	local line = "[msgtest] " .. text;
+	local f = io.open("twase_msgtest.log", "a");
+	if f then
+		f:write(os.date("%H:%M:%S") .. " " .. line .. "\n");
+		f:close();
+	end
+	if type(output) == "function" then
+		output(line);
 	else
-		print("[msgtest] " .. text);
+		print(line);
 	end
 end
 
