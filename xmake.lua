@@ -25,3 +25,10 @@ elseif is_plat("macosx") then
     set_arch("arm64")
     includes("src/platform/macos")
 end
+
+-- platform-free unit tests, not part of the default build: xmake build tests && xmake run tests
+target("tests")
+    set_kind("binary")
+    set_default(false)
+    add_files("tests/*.cpp")
+    add_includedirs("src/core")

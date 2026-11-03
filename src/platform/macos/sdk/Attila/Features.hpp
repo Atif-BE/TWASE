@@ -10,3 +10,4 @@
 #define TWASE_HAS_REGION_TRADING_PANEL 1 // its panel (both lists, multi-select), deal list labels
 #define TWASE_HAS_REGION_FOR_TROOPS 1   // Region for Troops (needs the panel)
 #define TWASE_HAS_DIPLOMACY_ACTIONS 1   // dev_diplomacy_actions
+#define TWASE_HAS_SCRIPT_MESSAGES 0     // twase.send (not found in the Mac binary yet)

@@ -19,6 +19,9 @@
 #if TWASE_HAS_REGION_TRADING
 #include "Hooks/NativeRegionTrading.hpp"
 #endif
+#if TWASE_HAS_SCRIPT_MESSAGES
+#include "Hooks/ScriptMessages.hpp"
+#endif
 
 #include <cmath>
 
@@ -843,6 +846,26 @@ int ClearMaxSlots(lua_State* L)
     return 0;
 }
 
+#if TWASE_HAS_SCRIPT_MESSAGES
+// twase.send(text): queues a synced script message from the local faction (Hooks/ScriptMessages.cpp). It runs on
+// every PC of the campaign at the same point of the model. Errors if it can't be sent (no campaign, too long, the
+// queue is full, an unsupported build).
+int Send(lua_State* L)
+{
+    if (LuaRuntime::type(L, 1) != LUA_TSTRING)
+    {
+        return LuaRuntime::error(L, "twase.send(text): expects a string");
+    }
+    size_t length = 0;
+    const char* text = LuaRuntime::tolstring(L, 1, &length);
+    if (const char* failure = Hooks::ScriptMessagesHook::Send(std::string_view(text, length)))
+    {
+        return LuaRuntime::error(L, "twase.send: %s", failure);
+    }
+    return 0;
+}
+#endif
+
 // twase.dev_last_deal_score() -> number, the last deal score the likelihood tooltip showed
 int DevLastDealScore(lua_State* L)
 {
@@ -900,6 +923,9 @@ void Scripting::LuaApi::Register(lua_State* L)
     SetFunction(L, "get_max_slots_minor", &GetMaxSlots<false>);
     SetFunction(L, "set_max_slots_minor", &SetMaxSlots<false>);
     SetFunction(L, "clear_max_slots", &ClearMaxSlots);
+#if TWASE_HAS_SCRIPT_MESSAGES
+    SetFunction(L, "send", &Send);
+#endif
 
     // probes for reverse engineering, only with [dev] lua_dev_functions = true
     if (App::Get()->GetConfig()->GetDev().luaDevFunctions)

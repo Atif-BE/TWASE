@@ -333,4 +333,24 @@ namespace sdk::Attila::Addresses
 	constexpr BuildAddress ListBox_Clear{0x13A0FB0, 0x13A0FB0};
 	constexpr BuildAddress ListBox_Layout{0x139F120, 0x139F120};
 
+	// CAMPAIGN COMMANDS (twase.send, Hooks/ScriptMessages.cpp, docs/engine/commands.md). Steam only so far: 0 = unknown.
+	// The UI's command queue: *(*(*g_Campaign + Campaign_Handle) + ModelHandle_CommandQueue) + CommandQueue_Buffer, a
+	// 0x5000-byte buffer with its uint32 write cursor after it (the queue recruitment 0x1522B60 and the settlement rename
+	// 0x14528A0 write to; the same field as ModelHandle_DealTermsContext)
+	constexpr uint32_t ModelHandle_CommandQueue = 0x2C;
+	constexpr uint32_t CommandQueue_Buffer = 0x4;
+	constexpr uint32_t CommandQueue_Capacity = 0x5000;      // the cursor is at buffer + capacity
+	// a command's bytes: src/core/ScriptMessageFormat.hpp (unit tag 0x88 read by 0xAB1CF0, text tag 0x0D by 0xD45A90)
+	// uint32_t: the hash of "CCQ_SET_UNIT_CUSTOM_NAME", set by its static registration 0x761D0
+	constexpr BuildAddress Ccq_SetUnitCustomName_Hash{0x24694A8, 0};
+	// void (__cdecl*)(READER* reader, MODEL* model): its handler, called by the tick's executor 0xB0B6A0 on every PC;
+	// renames the unit only if it exists
+	constexpr BuildAddress Ccq_SetUnitCustomName_Handler{0xAE55C0, 0};
+	// READER (built by the executor): error byte, the batch's buffer, the command's offset and length, the read cursor
+	constexpr uint32_t CommandReader_Error = 0x4;
+	constexpr uint32_t CommandReader_Data = 0x8;
+	constexpr uint32_t CommandReader_Start = 0xC;
+	constexpr uint32_t CommandReader_Length = 0x10;
+	constexpr uint32_t CommandReader_Cursor = 0x14;
+
 } // namespace sdk::Attila::Addresses
