@@ -86,6 +86,16 @@ namespace sdk::Attila::Addresses
 	constexpr uint32_t Faction_AliveMarker = 0x800;            // null once the faction is destroyed (FACTION::is_dead 0x716690)
 
 
+	// CAPITAL (twase.set_faction_capital), docs/engine/campaign-model.md "Capital". The save writes the region ids of
+	// + 0x890 and + 0x894 (FACTION save 0x6DF700, load 0x6CA3C0); the post-load resolve 0x725CD0 makes them pointers
+	// and sets + 0x898 from + 0x894's record (0x957740)
+	constexpr uint32_t Faction_Capital = 0x890;                // REGION*, the Lua home_region (0x848DE0)
+	constexpr uint32_t Faction_HomeCapital = 0x894;            // REGION*, regaining it restores the capital (0x6F9690)
+	constexpr uint32_t Faction_CapitalGroup = 0x898;           // regions record + 0x94, the new-capital choice's filter (0x72C6F0)
+	constexpr uint32_t Faction_Regions = 0x8D8;                // REGION**, Faction_RegionCount entries
+	constexpr uint32_t RegionRecord_CapitalGroup = 0x94;
+
+
 	// REGIONS (twase.region_wealth), from REGION_SCRIPT_INTERFACE's methods (table 0x1D2D7B8) and the province panel
 	// (ProvincePanel_Update 0x145E540)
 	constexpr uint32_t RegionScriptInterface_Region = 0x8;     // REGION*

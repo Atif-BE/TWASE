@@ -9,6 +9,7 @@
 #include "Version.hpp"
 #include "Hooks/DiplomacyLikelihood.hpp"
 #include "Hooks/CampaignUI.hpp"
+#include "FactionCapital.hpp"
 
 #include "Attila/Addresses.hpp"
 #include "Attila/Features.hpp"
@@ -119,6 +120,32 @@ int FactionAttitude(lua_State* L)
 
     LuaRuntime::pushnumber(L, static_cast<lua_Number>(static_cast<int>(getAttitude(cai, a, b))));
     return 1;
+}
+#endif
+
+#if TWASE_HAS_FACTION_CAPITAL && TWASE_HAS_FACTION_ATTITUDE && TWASE_HAS_REGION
+// twase.set_faction_capital(faction, region) -> true, or false and a reason
+// Makes an owned region the faction's capital: the same fields a save edit plus reload sets (current capital, home
+// capital, capital group). A model change, so in MP call it at the same model point on every PC (a synced message
+// handler), never from a UI event.
+int SetFactionCapital(lua_State* L)
+{
+    static_assert(sizeof(void*) == 4, "the capital fields are 4 bytes apart: x86 only");
+    const void* regionInterface = ScriptInterfaceArg(L, 2, "REGION_SCRIPT_INTERFACE");
+    void* region = regionInterface ? ReadPtr<void*>(regionInterface, Addr::RegionScriptInterface_Region) : nullptr;
+    void* faction = const_cast<void*>(FactionArg(L, 1));
+
+    constexpr FactionCapital::Layout layout{Addr::Faction_AliveMarker, Addr::Faction_Capital,     Addr::Faction_HomeCapital,
+                                            Addr::Faction_CapitalGroup, Addr::Faction_RegionCount, Addr::Faction_Regions,
+                                            Addr::Region_Record,        Addr::RegionRecord_CapitalGroup};
+    const auto result = FactionCapital::Set(faction, region, layout);
+    LuaRuntime::pushboolean(L, result == FactionCapital::Result::Ok);
+    if (result == FactionCapital::Result::Ok)
+    {
+        return 1;
+    }
+    LuaRuntime::pushstring(L, FactionCapital::Describe(result));
+    return 2;
 }
 #endif
 
@@ -914,6 +941,9 @@ void Scripting::LuaApi::Register(lua_State* L)
 #endif
 #if TWASE_HAS_REGION
     SetFunction(L, "region_wealth", &RegionWealth);
+#endif
+#if TWASE_HAS_FACTION_CAPITAL && TWASE_HAS_FACTION_ATTITUDE && TWASE_HAS_REGION
+    SetFunction(L, "set_faction_capital", &SetFactionCapital);
 #endif
 #if TWASE_HAS_DATABASE && TWASE_HAS_DB_RECORDS
     SetFunction(L, "building_level", &BuildingLevel);

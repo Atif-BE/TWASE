@@ -1,26 +1,13 @@
 // Tests of the synced script message bytes (src/core/ScriptMessageFormat.hpp), against the layout read from the
-// engine's writers and readers (docs/engine/commands.md). Build and run: xmake build tests && xmake run tests
+// engine's writers and readers (docs/engine/commands.md).
 
 #include "ScriptMessageFormat.hpp"
-
-#include <cstdio>
-#include <cstdlib>
+#include "Check.hpp"
 
 namespace F = ScriptMessageFormat;
 
 namespace
 {
-int failures = 0;
-
-void Check(bool aOk, const char* aWhat)
-{
-    if (!aOk)
-    {
-        std::printf("FAIL: %s\n", aWhat);
-        failures++;
-    }
-}
-
 // Decodes a command as the executor hands it to the handler: the cursor after the 7-byte header
 std::optional<F::Message> DecodeCommand(const std::vector<uint8_t>& aCommand, uint32_t aOffset = 0)
 {
@@ -31,7 +18,7 @@ std::optional<F::Message> DecodeCommand(const std::vector<uint8_t>& aCommand, ui
 }
 } // namespace
 
-int main()
+void RunScriptMessageFormatTests()
 {
     // the exact bytes: "twase1|f|hi" is 11 code units
     {
@@ -106,10 +93,4 @@ int main()
         Check(!F::Decode(c.data(), 0, F::HeaderSize - 1, F::HeaderSize), "a command shorter than its header");
         Check(F::Decode(c.data(), 0, static_cast<uint32_t>(c.size()), F::HeaderSize).has_value(), "the same bytes, well formed");
     }
-
-    if (failures == 0)
-    {
-        std::printf("all script message format tests passed\n");
-    }
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

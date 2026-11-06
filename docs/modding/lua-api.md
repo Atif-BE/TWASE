@@ -29,6 +29,18 @@ local attitude = twase.faction_attitude(world:faction_by_key("att_fact_eastern_r
                                         world:faction_by_key("att_fact_western_roman_empire"));
 ```
 
+### `twase.set_faction_capital(faction, region) -> true | false, reason`
+
+Windows only. Makes `region` the capital of `faction`, which must own it. It sets the same fields as a save edit followed by a reload: the current capital (`home_region()`), the original capital (winning it back would restore it), and the capital group the engine uses to choose a new capital when one is lost. It returns `false` and a reason when the faction is missing or destroyed (`"no faction"`), the region is missing, the faction doesn't own the region, or the region is already the capital. Nothing is changed then.
+
+This changes the campaign model. In multiplayer, call it at the same model point on every PC, for example from a `twase.set_message_handler` handler, never from a UI event on one PC.
+
+```lua
+local world = get_cm():model():world();
+local ok, reason = twase.set_faction_capital(world:faction_by_key("mk_fact_england"),
+                                             world:region_manager():region_by_key("att_reg_britannia_inferior_eboracum"));
+```
+
 ### `twase.region_wealth(region) -> total, breakdown`
 
 The region's wealth (its GDP before tax, the number in the province panel) and the breakdown the panel's wealth tooltip shows, as a table of the non-zero categories:
