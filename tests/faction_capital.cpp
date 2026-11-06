@@ -20,7 +20,9 @@ struct Fake
     alignas(8) uint8_t regionC[0x20] = {};
     alignas(8) uint8_t recordA[0x20] = {};
     alignas(8) uint8_t recordB[0x20] = {};
-    void* regions[2] = {};
+    // the faction's list holds pointers to slots that hold the REGION* (the Lua region_list 0x85CC80 reads **entry)
+    void* slots[2] = {};
+    void** regions[2] = {};
     int alive = 1;
     int groupA = 0;
     int groupB = 0;
@@ -41,10 +43,12 @@ struct Fake
     Fake()
     {
         Put<void*>(faction, kLayout.factionAlive, &alive);
-        regions[0] = regionA;
-        regions[1] = regionB;
+        slots[0] = regionA;
+        slots[1] = regionB;
+        regions[0] = &slots[0];
+        regions[1] = &slots[1];
         Put<uint32_t>(faction, kLayout.factionRegionCount, 2);
-        Put<void**>(faction, kLayout.factionRegions, regions);
+        Put<void***>(faction, kLayout.factionRegions, regions);
         Put<void*>(faction, kLayout.factionCapital, regionA);
         Put<void*>(faction, kLayout.factionHome, regionA);
         Put<void*>(faction, kLayout.factionGroup, &groupA);
@@ -102,7 +106,12 @@ void RunFactionCapitalTests()
     }
     {
         Fake f;
-        f.Put<void**>(f.faction, kLayout.factionRegions, nullptr);
+        f.Put<void***>(f.faction, kLayout.factionRegions, nullptr);
         Check(C::Set(f.faction, f.regionB, kLayout) == C::Result::NotOwned && f.Unchanged(), "no region list");
+    }
+    {
+        Fake f;
+        f.regions[1] = nullptr;
+        Check(C::Set(f.faction, f.regionB, kLayout) == C::Result::NotOwned && f.Unchanged(), "an empty entry in the list");
     }
 }

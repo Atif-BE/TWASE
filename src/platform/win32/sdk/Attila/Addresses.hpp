@@ -92,7 +92,7 @@ namespace sdk::Attila::Addresses
 	constexpr uint32_t Faction_Capital = 0x890;                // REGION*, the Lua home_region (0x848DE0)
 	constexpr uint32_t Faction_HomeCapital = 0x894;            // REGION*, regaining it restores the capital (0x6F9690)
 	constexpr uint32_t Faction_CapitalGroup = 0x898;           // regions record + 0x94, the new-capital choice's filter (0x72C6F0)
-	constexpr uint32_t Faction_Regions = 0x8D8;                // REGION**, Faction_RegionCount entries
+	constexpr uint32_t Faction_Regions = 0x8D8;                // Faction_RegionCount pointers to REGION* slots (region_list reads **entry)
 	constexpr uint32_t RegionRecord_CapitalGroup = 0x94;
 
 

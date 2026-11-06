@@ -15,7 +15,7 @@ struct Layout
     uint32_t factionHome;        // REGION*, the original capital (taking it back makes it the capital)
     uint32_t factionGroup;       // the home capital's record field, used to pick a new capital
     uint32_t factionRegionCount; // u32
-    uint32_t factionRegions;     // REGION**
+    uint32_t factionRegions;     // array of pointers to REGION* slots (the Lua region_list reads **entry)
     uint32_t regionRecord;       // regions record*
     uint32_t recordGroup;        // pointer-sized field of the regions record
 };
@@ -81,11 +81,11 @@ inline Result Set(void* aFaction, void* aRegion, const Layout& aLayout)
     }
 
     const auto count = Read<uint32_t>(aFaction, aLayout.factionRegionCount);
-    auto* const* regions = Read<void* const*>(aFaction, aLayout.factionRegions);
+    auto* const* const* regions = Read<void* const* const*>(aFaction, aLayout.factionRegions);
     bool owned = false;
     for (uint32_t i = 0; regions && i < count && !owned; i++)
     {
-        owned = regions[i] == aRegion;
+        owned = regions[i] && *regions[i] == aRegion;
     }
     if (!owned)
     {
