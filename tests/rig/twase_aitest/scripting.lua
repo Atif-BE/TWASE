@@ -93,7 +93,20 @@ local function flush_counts()
 	counts = {};
 end
 
-if twase and twase.set_ai_goal_handler then
+-- handlers=off in the bench's plan: leave the goal and war handlers to another mod (e.g. the strategist), which the
+-- rig would otherwise replace (TWASE keeps one of each)
+local handlers_off = false;
+do
+	local f = io.open("twase_aitest_plan.txt", "r");
+	if f then
+		handlers_off = (f:read("*a") or ""):find("handlers=off", 1, true) ~= nil;
+		f:close();
+	end
+end
+
+if handlers_off then
+	log("handlers left to other mods (plan: handlers=off)");
+elseif twase and twase.set_ai_goal_handler then
 	twase.set_ai_goal_handler(function(goal)
 		local now = turn();
 		if now ~= counted_turn then
@@ -143,7 +156,7 @@ else
 	log("this TWASE has no campaign AI hooks: the goal and war tests are off");
 end
 
-if twase and twase.set_war_declared_handler then
+if not handlers_off and twase and twase.set_war_declared_handler then
 	twase.set_war_declared_handler(function(attacker, target, caller)
 		local path = ({ ["0xADD2A0"] = "command (force_declare_war or a player)", ["0xC6DD74"] = "deal (AI or player)" })[caller]
 			or "other path";
