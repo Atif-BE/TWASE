@@ -4,6 +4,7 @@
 
 [repo]
 name = "twase"
+code = ["src"]  # changes here need a Component: line (src/core holds the Lua API, not only the hooks)
 version = { file = "src/core/Version.hpp", regex = 'TWASE_VERSION_STR "([^"]+)"' }
 
 [[provides]]
