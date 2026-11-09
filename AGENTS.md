@@ -24,6 +24,13 @@ The hooks then run on every commit:
 
 Never bypass them with `--no-verify`. If a hook is wrong, fix the hook in the hub.
 
+## Bringing your own repo into the hub
+
+1. Draft your `component.toml`: `python <hub>/tools/hub.py init <your repo>`. It lists every file you pack, groups them into components (ids start with your repo's name), and leaves a TODO for each title. Fill those in, narrow `targets` to the game builds you have tested, and commit it.
+2. Check it against everyone else: `python <hub>/tools/hub.py --override <your repo> check`.
+3. Push it to GitHub (public, or give Atif-BE read access), then open an issue in the hub with the **Add my repo** form: your repo's URL, the commit, and whether it should be ported into `attila-1212-mp`.
+4. The hub checks it and replies on the issue. With no conflicts, it opens the PR that adds your repo to `develop` (as `trusted = false`). Claude reviews that PR and merges it, and your repo is in. To re-check after a fix, push and edit the issue.
+
 ## Every change, in this order
 
 1. **Find or add its component** in `component.toml` at the repo root. A new piece of work starts as `status = "dev"`, before any code.
