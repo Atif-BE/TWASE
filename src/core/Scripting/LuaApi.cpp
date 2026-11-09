@@ -9,6 +9,7 @@
 #include "Version.hpp"
 #include "Hooks/DiplomacyLikelihood.hpp"
 #include "Hooks/CampaignUI.hpp"
+#include "FactionCapital.hpp"
 
 #include "Attila/Addresses.hpp"
 #include "Attila/Features.hpp"
@@ -18,6 +19,12 @@
 
 #if TWASE_HAS_REGION_TRADING
 #include "Hooks/NativeRegionTrading.hpp"
+#endif
+#if TWASE_HAS_SCRIPT_MESSAGES
+#include "Hooks/ScriptMessages.hpp"
+#endif
+#if TWASE_HAS_CAMPAIGN_AI
+#include "Hooks/CampaignAI.hpp"
 #endif
 
 #include <cmath>
@@ -116,6 +123,32 @@ int FactionAttitude(lua_State* L)
 
     LuaRuntime::pushnumber(L, static_cast<lua_Number>(static_cast<int>(getAttitude(cai, a, b))));
     return 1;
+}
+#endif
+
+#if TWASE_HAS_FACTION_CAPITAL && TWASE_HAS_FACTION_ATTITUDE && TWASE_HAS_REGION
+// twase.set_faction_capital(faction, region) -> true, or false and a reason
+// Makes an owned region the faction's capital: the same fields a save edit plus reload sets (current capital, home
+// capital, capital group). A model change, so in MP call it at the same model point on every PC (a synced message
+// handler), never from a UI event.
+int SetFactionCapital(lua_State* L)
+{
+    static_assert(sizeof(void*) == 4, "the capital fields are 4 bytes apart: x86 only");
+    const void* regionInterface = ScriptInterfaceArg(L, 2, "REGION_SCRIPT_INTERFACE");
+    void* region = regionInterface ? ReadPtr<void*>(regionInterface, Addr::RegionScriptInterface_Region) : nullptr;
+    void* faction = const_cast<void*>(FactionArg(L, 1));
+
+    constexpr FactionCapital::Layout layout{Addr::Faction_AliveMarker, Addr::Faction_Capital,     Addr::Faction_HomeCapital,
+                                            Addr::Faction_CapitalGroup, Addr::Faction_RegionCount, Addr::Faction_Regions,
+                                            Addr::Region_Record,        Addr::RegionRecord_CapitalGroup};
+    const auto result = FactionCapital::Set(faction, region, layout);
+    LuaRuntime::pushboolean(L, result == FactionCapital::Result::Ok);
+    if (result == FactionCapital::Result::Ok)
+    {
+        return 1;
+    }
+    LuaRuntime::pushstring(L, FactionCapital::Describe(result));
+    return 2;
 }
 #endif
 
@@ -843,6 +876,149 @@ int ClearMaxSlots(lua_State* L)
     return 0;
 }
 
+#if TWASE_HAS_SCRIPT_MESSAGES || TWASE_HAS_CAMPAIGN_AI
+// twase.<aName>(handler): stores a function, or nil to remove it, in this state's registry field aKey
+int SetRegistryHandler(lua_State* L, const char* aName, const char* aKey)
+{
+    const int type = LuaRuntime::type(L, 1);
+    if (type != LUA_TFUNCTION && type != LUA_TNIL && type != LUA_TNONE)
+    {
+        return LuaRuntime::error(L, "twase.%s(handler): expects a function or nil", aName);
+    }
+    LuaRuntime::settop(L, 1);
+    LuaRuntime::setfield(L, LUA_REGISTRYINDEX, aKey);
+    return 0;
+}
+#endif
+
+#if TWASE_HAS_SCRIPT_MESSAGES
+// twase.send(text): queues a synced script message from the local faction (Hooks/ScriptMessages.cpp). It runs on
+// every PC of the campaign at the same point of the model. Errors if it can't be sent (no campaign, too long, the
+// queue is full, an unsupported build).
+int Send(lua_State* L)
+{
+    if (LuaRuntime::type(L, 1) != LUA_TSTRING)
+    {
+        return LuaRuntime::error(L, "twase.send(text): expects a string");
+    }
+    size_t length = 0;
+    const char* text = LuaRuntime::tolstring(L, 1, &length);
+    if (const char* failure = Hooks::ScriptMessagesHook::Send(std::string_view(text, length)))
+    {
+        return LuaRuntime::error(L, "twase.send: %s", failure);
+    }
+    return 0;
+}
+
+// twase.set_message_handler(function(sender_key, text) end | nil): called on every PC when a message runs, inside the
+// model's command processing. Kept in this state's registry; messages are delivered to the campaign scripts' state.
+int SetMessageHandler(lua_State* L)
+{
+    return SetRegistryHandler(L, "set_message_handler", Hooks::ScriptMessagesHook::HandlerKey);
+}
+#endif
+
+#if TWASE_HAS_CAMPAIGN_AI
+// twase.set_ai_goal_handler(function(goal) return score | false | nil end | nil): called for every goal an AI
+// faction's deal generators build, before the AI picks its deal; goal = {generator, type, owner, target, score, amount,
+// answering}. A number replaces the score, false removes the goal, nil keeps it. Decide from synced state only.
+// Registered only when the hooks are attached.
+int SetAIGoalHandler(lua_State* L)
+{
+    SetRegistryHandler(L, "set_ai_goal_handler", Hooks::CampaignAIHook::GoalHandlerKey); // raises on a bad argument
+    Hooks::CampaignAIHook::HandlerChanged();
+    return 0;
+}
+
+#if TWASE_HAS_FACTION_ATTITUDE
+// twase.set_ai_faction_manager(faction, manager) -> true, or false and a reason
+// Sets which manager runs the faction's campaign AI, as the console command set_cai_faction_manager does (which
+// CliExecute doesn't reach: it runs startup-script lines, not console commands). manager: "FULL_MANAGER" (the normal
+// AI), "MAINTAINANCE_MANAGER", "REBELLION_MANAGER", "END_TURN_MANAGER", "DO_NOTHING_MANAGER",
+// "END_TURN_ALLOW_DIPLOMACY". A model change: in MP call it at the same model point on every PC.
+int SetAIFactionManager(lua_State* L)
+{
+    using SetManager_t = int(TWASE_THISCALL*)(void* cai, void* caiFaction, int manager);
+    using Instantiate_t = void(TWASE_THISCALL*)(void* cai, void* caiFaction);
+    static const auto setManager = Resolve<SetManager_t>(Addr::Cai_SetFactionManager);
+    static const auto instantiate = Resolve<Instantiate_t>(Addr::Cai_InstantiateFactionManager);
+    struct Manager
+    {
+        const char* name;
+        int type;
+    };
+    static constexpr Manager kManagers[] = {{"FULL_MANAGER", 0},     {"MAINTAINANCE_MANAGER", 1}, {"REBELLION_MANAGER", 2},
+                                            {"END_TURN_MANAGER", 3}, {"DO_NOTHING_MANAGER", 4},  {"END_TURN_ALLOW_DIPLOMACY", 8}};
+
+    void* faction = const_cast<void*>(FactionArg(L, 1));
+    const char* name = LuaRuntime::type(L, 2) == LUA_TSTRING ? LuaRuntime::tolstring(L, 2, nullptr) : nullptr;
+    int type = -1;
+    for (const auto& manager : kManagers)
+    {
+        if (name && std::strcmp(name, manager.name) == 0)
+        {
+            type = manager.type;
+        }
+    }
+    if (type < 0)
+    {
+        return LuaRuntime::error(L, "twase.set_ai_faction_manager(faction, manager): unknown manager %s", name ? name : "(not a string)");
+    }
+    const void* handle = faction ? ReadPtr<const void*>(faction, Addr::Faction_ModelHandle) : nullptr;
+    const void* world = handle ? ReadPtr<const void*>(handle, Addr::ModelHandle_World) : nullptr;
+    void* cai = world ? ReadPtr<void*>(world, Addr::World_CAIInterface) : nullptr;
+    if (!faction || !cai)
+    {
+        LuaRuntime::pushboolean(L, false);
+        LuaRuntime::pushstring(L, faction ? "campaign AI not available" : "not a living faction");
+        return 2;
+    }
+    // the CAI's own entry for the faction: both engine calls take it, not the FACTION*
+    void* caiFaction = nullptr;
+    const void* set_ = ReadPtr<const void*>(cai, Addr::Cai_FactionSet);
+    if (set_)
+    {
+        const auto* list = static_cast<const uint8_t*>(set_) + Addr::CaiFactionSet_List;
+        const auto count = ReadPtr<uint32_t>(list, Addr::CaiFactionList_Count);
+        auto* const* entries = ReadPtr<void* const*>(list, Addr::CaiFactionList_Data);
+        for (uint32_t i = 0; entries && i < count && i < 4096; i++)
+        {
+            if (entries[i] && ReadPtr<const void*>(entries[i], Addr::CaiFaction_Faction) == faction)
+            {
+                caiFaction = entries[i];
+                break;
+            }
+        }
+    }
+    if (!caiFaction)
+    {
+        LuaRuntime::pushboolean(L, false);
+        LuaRuntime::pushstring(L, "the campaign AI has no entry for this faction");
+        return 2;
+    }
+    const int set = setManager(cai, caiFaction, type);
+    instantiate(cai, caiFaction); // the override is only read when the manager is created
+    LuaRuntime::pushboolean(L, set == type);
+    if (set == type)
+    {
+        return 1;
+    }
+    LuaRuntime::pushstring(L, "the engine changed the manager (multiplayer keeps only END_TURN_MANAGER and DO_NOTHING_MANAGER)");
+    return 2;
+}
+#endif
+
+// twase.set_war_declared_handler(function(attacker_key, target_key, caller_rva) end | nil): called on every call of
+// FACTION::declare_war, whatever started it, before the engine checks the pair. caller_rva is a hex string naming the
+// path, as the return address ("0xADD2A0" a CCQ_DECLARE_WAR command such as cm:force_declare_war, "0xC6DD74" a deal).
+int SetWarDeclaredHandler(lua_State* L)
+{
+    SetRegistryHandler(L, "set_war_declared_handler", Hooks::CampaignAIHook::WarHandlerKey); // raises on a bad argument
+    Hooks::CampaignAIHook::HandlerChanged();
+    return 0;
+}
+#endif
+
 // twase.dev_last_deal_score() -> number, the last deal score the likelihood tooltip showed
 int DevLastDealScore(lua_State* L)
 {
@@ -878,6 +1054,9 @@ void Scripting::LuaApi::Register(lua_State* L)
 #if TWASE_HAS_REGION
     SetFunction(L, "region_wealth", &RegionWealth);
 #endif
+#if TWASE_HAS_FACTION_CAPITAL && TWASE_HAS_FACTION_ATTITUDE && TWASE_HAS_REGION
+    SetFunction(L, "set_faction_capital", &SetFactionCapital);
+#endif
 #if TWASE_HAS_DATABASE && TWASE_HAS_DB_RECORDS
     SetFunction(L, "building_level", &BuildingLevel);
     SetFunction(L, "unit", &Unit);
@@ -900,6 +1079,21 @@ void Scripting::LuaApi::Register(lua_State* L)
     SetFunction(L, "get_max_slots_minor", &GetMaxSlots<false>);
     SetFunction(L, "set_max_slots_minor", &SetMaxSlots<false>);
     SetFunction(L, "clear_max_slots", &ClearMaxSlots);
+#if TWASE_HAS_SCRIPT_MESSAGES
+    SetFunction(L, "send", &Send);
+    SetFunction(L, "set_message_handler", &SetMessageHandler);
+#endif
+#if TWASE_HAS_CAMPAIGN_AI
+    // only with the hooks attached (not on GOG, or after a failed attach), so scripts can test for the functions
+    if (Hooks::CampaignAIHook::IsReady())
+    {
+        SetFunction(L, "set_ai_goal_handler", &SetAIGoalHandler);
+        SetFunction(L, "set_war_declared_handler", &SetWarDeclaredHandler);
+#if TWASE_HAS_FACTION_ATTITUDE
+        SetFunction(L, "set_ai_faction_manager", &SetAIFactionManager);
+#endif
+    }
+#endif
 
     // probes for reverse engineering, only with [dev] lua_dev_functions = true
     if (App::Get()->GetConfig()->GetDev().luaDevFunctions)

@@ -18,6 +18,20 @@ Known fields:
 - is human, is a horde, can own land (false e.g. for the Huns as a horde; checked by `transfer_region_to_faction` too)
 - capital, the list of its regions (the Lua `region_list`), treasury
 
+### Capital
+
+Windows RVAs (Steam build), found 2026-11-06:
+
+- **Fields:**
+  - `+0x890`: `REGION*`, the current capital. `home_region` (0x848DE0) reads it, and `has_home_region` (0x8480B0) checks it for null. `REGION::is_capital` (0x949660) is live: `owner + 0x890 == region`.
+  - `+0x894`: `REGION*`, the original capital. Winning it back makes it the capital again (region gain 0x6F9690).
+  - `+0x898`: the original capital's `regions` record field `+0x94` (0x957740), a grouping that the choice of a new capital filters on (0x72C6F0, nearest region of the same group). Not saved.
+- **Save and load:**
+  - The faction's save (0x6DF700) writes the region ids of `+0x890` and `+0x894` right after `CAMPAIGN_SHROUD`. They are child nodes 21 and 22 of the `FACTION` record, which 1212's capital-change tool edits.
+  - Load (0x6CA3C0) stores the ids. The post-load resolve (0x725CD0) turns them into pointers through the model's id map and sets `+0x898`.
+- **Losing the capital:** 0x7082D0 clears `+0x890`, then 0x720CB0 stores the region that 0x72C6F0 picks, which can be none. These are plain stores, with no event, cache or UI refresh. The "capital lost" message is a UI event.
+- **`twase.set_faction_capital`** writes all three fields as the resolve would (`src/core/FactionCapital.hpp`). Not traced: whether anything built at turn start or load (AI, effects, map icon) keeps the old capital until it is next rebuilt.
+
 `CAI_INTERFACE::get_faction_attitude(a, b)` sums the attitude modifiers of `a` towards `b` and rounds them: the number the diplomacy screen shows (`twase.faction_attitude`).
 
 ## Regions (`REGION`)

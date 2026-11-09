@@ -4,4 +4,4 @@
 #define TWASE_VERSION_MINOR 4
 #define TWASE_VERSION_PATCH 0
 
-#define TWASE_VERSION_STR "1.4.0"
+#define TWASE_VERSION_STR "1.4.0-mp2"

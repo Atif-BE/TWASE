@@ -131,6 +131,32 @@ bool LuaGameEnvironment::SelectContext(size_t index)
     return true;
 }
 
+lua_State* LuaGameEnvironment::FindState(const char* aName)
+{
+    if (!s_listHead || !aName)
+    {
+        return nullptr;
+    }
+    for (RuntimeLuaNode* node = *s_listHead; node && node != s_sentinel; node = node->next)
+    {
+        lua_State* L = node->runtime ? node->runtime->L : nullptr;
+        if (!L)
+        {
+            continue;
+        }
+        LuaRuntime::getfield(L, LUA_GLOBALSINDEX, "decoda_name");
+        size_t length = 0;
+        const char* name = LuaRuntime::tolstring(L, -1, &length);
+        const bool match = name && std::string_view(name, length) == aName;
+        LuaRuntime::settop(L, -2);
+        if (match)
+        {
+            return L;
+        }
+    }
+    return nullptr;
+}
+
 bool LuaGameEnvironment::IsContextValid()
 {
     if (!s_activeL)

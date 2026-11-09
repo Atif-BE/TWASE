@@ -1,6 +1,6 @@
 # Lua API (`twase.*`)
 
-TWASE adds a global table `twase` to the campaign's Lua environment, before it loads the [script mods](script-mods.md). It gives scripts what the game's own campaign API doesn't expose: the AI's attitude, a region's wealth breakdown, the loaded database, the localisation, and the engine's region deals.
+TWASE adds a global table `twase` to the campaign's Lua environment, before it loads the [script mods](script-mods.md). It gives scripts what the game's own campaign API doesn't expose: the AI's attitude, a region's wealth breakdown, the loaded database, the localisation, the engine's region deals, and synced script messages for multiplayer.
 
 > **Platforms:** the `twase` table is in **TWASE 1.2.0** on Windows and Mac (since 1.1.0 on Mac; only the probe `twase.dev_diplomacy_actions` is Mac only). Older versions don't have it: check with `if twase then ... end`.
 
@@ -27,6 +27,18 @@ The TWASE version string, e.g. `"1.1.0"`.
 local world = get_cm():model():world();
 local attitude = twase.faction_attitude(world:faction_by_key("att_fact_eastern_roman_empire"),
                                         world:faction_by_key("att_fact_western_roman_empire"));
+```
+
+### `twase.set_faction_capital(faction, region) -> true | false, reason`
+
+Windows only. Makes `region` the capital of `faction`, which must own it. It sets the same fields as a save edit followed by a reload: the current capital (`home_region()`), the original capital (winning it back would restore it), and the capital group the engine uses to choose a new capital when one is lost. It returns `false` and a reason when the faction is missing or destroyed (`"no faction"`), the region is missing, the faction doesn't own the region, or the region is already the capital. Nothing is changed then.
+
+This changes the campaign model. In multiplayer, call it at the same model point on every PC, for example from a `twase.set_message_handler` handler, never from a UI event on one PC.
+
+```lua
+local world = get_cm():model():world();
+local ok, reason = twase.set_faction_capital(world:faction_by_key("mk_fact_england"),
+                                             world:region_manager():region_by_key("att_reg_britannia_inferior_eboracum"));
 ```
 
 ### `twase.region_wealth(region) -> total, breakdown`
@@ -178,6 +190,77 @@ buildings, or supply a layout for extra cards. The campaign data and UI mod must
 Both overrides belong to the game process, not to a campaign or save: they stay set when the player loads another
 save or campaign, until the game exits or a mod clears them. A mod that needs them should set them every time its
 campaign script loads (for example on `UICreated`) rather than rely on an earlier call.
+
+## Synced script messages
+
+A player's click in a multiplayer campaign happens on one PC only, and script code that changes the campaign there desyncs it. A script message solves this. One PC sends a text, and the text runs on **every** PC of the campaign at the same point of the model, sender included, like a player's command. This is what later Total War games call `UITriggerScriptEvent`. Any human player can send, host or client.
+
+> **Platforms:** Windows Steam build only (TWASE fork, not yet upstream). On the Windows GOG build `twase.send` raises an error, and a handler never fires. On Mac neither function exists. Check with `if twase and twase.send then ... end`.
+
+### `twase.send(text)`
+
+Queues `text` (a string of bytes 1-255, no NUL) from the local player's faction. It doesn't run at once: like a player's command it runs on every PC once the engine has passed it round, usually a moment later. Raises a Lua error if it can't be sent: outside a campaign, on an unsupported build, if the text is too long, or if the command queue is full.
+
+The text, the sender's faction key and 8 bytes of framing (a 7-byte marker and a separator) share 255 bytes. With a 20-character faction key that leaves 227 bytes for the text.
+
+### `twase.set_message_handler(handler)`
+
+`handler(sender_key, text)` is called on every PC when a message runs. `sender_key` is the sending player's faction key and `text` the bytes `twase.send` was given. The engine doesn't record who sent a command, so the sending PC writes its own faction key into the message. It's right for honest players, but a modified client could claim another faction: don't give it more weight than co-operative play needs. `nil` removes the handler. A mod must set it on every PC (e.g. when its campaign script loads), because a message that runs where no handler is set is only logged. There is one handler per campaign: a second call replaces the first.
+
+The handler runs inside the model's command processing, at the same point on every PC. It may change the campaign like any synced event handler, but it must decide only from what's the same on every PC: the text, the model, and saved values. Never use the local faction, the UI or `math.random` there, and never call `twase.send` from it: the handler runs on every PC, so every PC would send its own copy. Errors in the handler are logged (`[ScriptMessages]` in the TWASE log) and don't reach the sender.
+
+A PC without TWASE, or with a build without script messages, ignores the message: the engine does nothing with it (it's a rename of a unit that doesn't exist). Its scripts don't see it, so in multiplayer **every player must run the same TWASE build** before a handler may change the campaign. The same goes for whatever sets the handler: the same mods on every PC, and for loose script mods the same `auto_load_mods` setting. A PC that has no handler when a message runs only logs it.
+
+```lua
+-- every PC
+twase.set_message_handler(function(sender, text)
+    local action, data = text:match("^([%w_]+):(.*)$");
+    if action == "accept_decision" then
+        -- change the campaign here, the same way on every PC
+    end
+end);
+
+-- the PC where the player clicked
+twase.send("accept_decision:" .. decision_key);
+```
+
+## Campaign AI
+
+Windows Steam only, **experimental**: not yet tested in game (the rig test is `tests/rig/twase_aitest`). The functions exist only when the hooks attached, so test for them (`if twase.set_ai_goal_handler then`). The goal handler runs in the AI's turn and also when an AI answers a deal, including a human's offer (`goal.answering`); whether that answer runs on every PC of a multiplayer campaign isn't confirmed yet, so don't change saved state from answering goals. The war handler runs wherever a war is declared. Both must decide only from synced state (the arguments, the model, saved values), never from the local faction, the UI, the time or `math.random`. One handler of each kind per campaign, set from the campaign scripts (only their Lua state is read); `nil` removes it. Errors are logged (`[CampaignAI]` in the TWASE log).
+
+### `twase.set_ai_goal_handler(handler)`
+
+`handler(goal)` is called for every goal an AI faction's 20 deal generators build, before the AI turns the best goals into a deal offer. `goal` is a table:
+
+| Field | Meaning |
+| --- | --- |
+| `generator` | 0-19, e.g. 0 `PEACE`, 1 `DECLARE_WAR_ON_FACTIONS_I_DISLIKE`, 7 `TRADE_AGREEMENT`, 17 `DECLARE_WAR_ON_NEARBY_FACTIONS` |
+| `type` | the goal type |
+| `owner` | the faction whose AI generates the goal (empty if it couldn't be read) |
+| `target` | the faction the goal is about (empty if it couldn't be read) |
+| `score` | the AI's score; only goals above 0 become deal terms |
+| `amount` | a payment amount, where the goal has one |
+| `answering` | true when the AI is answering a deal, false when it plans its own offer |
+
+Return a number to replace the score, `false` to remove the goal, or nothing to keep it. A number is used as it is: deal generation can still add bonuses afterwards (e.g. +10 for a goal that matches the deal being answered), so a goal with a score of 0 or a little below can still become a deal term. `false` stores a large negative score that no bonus lifts. NaN and infinite numbers are ignored.
+
+```lua
+-- AIs never plan their own wars against Rome (allies can still be called into a war on Rome; generator 4's target may
+-- be the invited faction rather than the attacked one, so it isn't filtered here)
+twase.set_ai_goal_handler(function(goal)
+    if goal.target == "att_fact_western_roman_empire" and (goal.generator == 1 or goal.generator == 17) then
+        return false;
+    end
+end);
+```
+
+### `twase.set_war_declared_handler(handler)`
+
+`handler(attacker_key, target_key, caller_rva)` is called on every call of the engine's `declare_war`, whatever started it, before the engine checks the pair: a call for factions already at war, or a dead faction, declares nothing. `caller_rva` is a hex string, the return address of the call (the instruction after it), naming the path: `"0xADD2A0"` a script's `cm:force_declare_war` or a player, `"0xC6DD74"` a deal, anything else another engine path. It can't stop the war.
+
+### `twase.set_ai_faction_manager(faction, manager)`
+
+Sets which manager runs an AI faction's campaign AI and rebuilds it at once, as the console commands `set_cai_faction_manager` and `cai_force_manager_for` do together. `faction` is a faction script interface (`get_cm():model():world():faction_by_key(key)`); `manager` is `"FULL_MANAGER"` (the normal AI), `"MAINTAINANCE_MANAGER"`, `"REBELLION_MANAGER"`, `"END_TURN_MANAGER"`, `"DO_NOTHING_MANAGER"` or `"END_TURN_ALLOW_DIPLOMACY"`. Returns `true`, or `false` and a reason. With `"DO_NOTHING_MANAGER"` the faction stops moving, recruiting and declaring war (rig, 1212 SP). In multiplayer the engine keeps only `END_TURN_MANAGER` and `DO_NOTHING_MANAGER`; call it at the same model point on every PC. `CliExecute("set_cai_faction_manager ...")` doesn't work: `CliExecute` runs startup-script lines (tweakers), not console commands.
 
 ## Development probes
 
