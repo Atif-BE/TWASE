@@ -81,7 +81,20 @@ jobs:
           settings: '{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}'
           claude_args: |
             --max-turns 60
-            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git commit:*),Bash(python .hub/tools/hub.py:*),Bash(python -m unittest:*)"
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git commit:*),Bash(python .hub/tools/hub.py:*),Bash(python3 .hub/tools/hub.py:*),Bash(python -m unittest:*),Bash(python3 -m unittest:*),Bash(ls:*)"
+      - name: Tool calls Claude was refused
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/claude-execution-output.json"
+          [ -f "$f" ] || { echo "no execution file"; exit 0; }
+          python - "$f" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          for m in data if isinstance(data, list) else [data]:
+              if m.get("type") == "result":
+                  for d in m.get("permission_denials") or []:
+                      print("refused:", d.get("tool_name"), json.dumps(d.get("tool_input"))[:300])
+          PY
       - name: Push the work branch
         id: push
         env:
