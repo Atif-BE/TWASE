@@ -224,6 +224,40 @@ end);
 twase.send("accept_decision:" .. decision_key);
 ```
 
+## Campaign AI
+
+Windows Steam only, **experimental**: not yet tested in game (the rig test is `tests/rig/twase_aitest`). The functions exist only when the hooks attached, so test for them (`if twase.set_ai_goal_handler then`). The goal handler runs in the AI's turn and also when an AI answers a deal, including a human's offer (`goal.answering`); whether that answer runs on every PC of a multiplayer campaign isn't confirmed yet, so don't change saved state from answering goals. The war handler runs wherever a war is declared. Both must decide only from synced state (the arguments, the model, saved values), never from the local faction, the UI, the time or `math.random`. One handler of each kind per campaign, set from the campaign scripts (only their Lua state is read); `nil` removes it. Errors are logged (`[CampaignAI]` in the TWASE log).
+
+### `twase.set_ai_goal_handler(handler)`
+
+`handler(goal)` is called for every goal an AI faction's 20 deal generators build, before the AI turns the best goals into a deal offer. `goal` is a table:
+
+| Field | Meaning |
+| --- | --- |
+| `generator` | 0-19, e.g. 0 `PEACE`, 1 `DECLARE_WAR_ON_FACTIONS_I_DISLIKE`, 7 `TRADE_AGREEMENT`, 17 `DECLARE_WAR_ON_NEARBY_FACTIONS` |
+| `type` | the goal type |
+| `owner` | the faction whose AI generates the goal (empty if it couldn't be read) |
+| `target` | the faction the goal is about (empty if it couldn't be read) |
+| `score` | the AI's score; only goals above 0 become deal terms |
+| `amount` | a payment amount, where the goal has one |
+| `answering` | true when the AI is answering a deal, false when it plans its own offer |
+
+Return a number to replace the score, `false` to remove the goal, or nothing to keep it. A number is used as it is: deal generation can still add bonuses afterwards (e.g. +10 for a goal that matches the deal being answered), so a goal with a score of 0 or a little below can still become a deal term. `false` stores a large negative score that no bonus lifts. NaN and infinite numbers are ignored.
+
+```lua
+-- AIs never plan their own wars against Rome (allies can still be called into a war on Rome; generator 4's target may
+-- be the invited faction rather than the attacked one, so it isn't filtered here)
+twase.set_ai_goal_handler(function(goal)
+    if goal.target == "att_fact_western_roman_empire" and (goal.generator == 1 or goal.generator == 17) then
+        return false;
+    end
+end);
+```
+
+### `twase.set_war_declared_handler(handler)`
+
+`handler(attacker_key, target_key, caller_rva)` is called on every call of the engine's `declare_war`, whatever started it, before the engine checks the pair: a call for factions already at war, or a dead faction, declares nothing. `caller_rva` is a hex string naming the path: `"0xADD29B"` a script's `cm:force_declare_war` or a player, `"0xC6DD6F"` a deal, anything else another engine path. It can't stop the war.
+
 ## Development probes
 
 With `lua_dev_functions = true` in the `[dev]` section of `config.ini`, the table also has probes for reverse engineering. They read raw memory and may change or go away in any version; don't use them in mods.

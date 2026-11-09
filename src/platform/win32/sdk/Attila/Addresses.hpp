@@ -363,4 +363,30 @@ namespace sdk::Attila::Addresses
 	constexpr uint32_t CommandReader_Length = 0x10;
 	constexpr uint32_t CommandReader_Cursor = 0x14;
 
+	// CAMPAIGN AI (Hooks/CampaignAI.cpp, attila-atlas engine/campaign_ai.md). Steam only so far: 0 = unknown.
+	// bool (__thiscall*)(NEGOTIATION_COMPONENT*, void* a, void* b, DEAL* deal_or_null), ret 0xC: runs the 20 deal
+	// generators of the component's faction towards another, then turns the best goals into a deal. Called from the AI's
+	// own proposals (0xC30DFA) and its answers to deals (0xC78000 AI-AI, 0xC78330 human).
+	constexpr BuildAddress Cai_DealGeneration{0xC8C060, 0};
+	// NEGOTIATION_COMPONENT + 0x90: the component's own CAI faction (read by 0xBF1A80 into the generator context + 0xC)
+	constexpr uint32_t NegotiationComponent_CaiFaction = 0x90;
+	// CTX* (__thiscall*)(CTX*, int generator_index, void*, NEGOTIATION_COMPONENT*), ret 0xC: sets up the context of
+	// generator <index> (0 PEACE ... 19), called before each of them by 0xC8C060
+	constexpr BuildAddress Cai_GoalGeneratorBegin{0xBF1A80, 0};
+	// GOAL* (__thiscall*)(GOAL*, int type, int ctx, float score, int amount, CAI_FACTION* target, int extra), ret 0x18:
+	// builds a 0x20-byte goal (+0 type, +8 amount, +0xC ctx, +0x10 score, +0x14 target, +0x18 extra). Only goals with a
+	// score above 0 become deal terms.
+	constexpr BuildAddress Cai_Goal_ctor{0xBF1A40, 0};
+	// The generators' code, where all their 0xBF1A40 calls are (generators 0-16 at 0xC3ED70-0xC427xx, 17-19 at
+	// 0xD04EE0-0xD05Dxx). 0xBF1A40's other callers (0xC8C786 in deal generation itself, 0xC7EB20 ally joins, 0xA602B0,
+	// 0xC48F30, 0xC63FE0) build goals that aren't a generator's.
+	constexpr uint32_t Cai_GeneratorsBegin = 0xC3ED70;
+	constexpr uint32_t Cai_GeneratorsEnd = 0xC42800;
+	constexpr uint32_t Cai_NearbyGeneratorsBegin = 0xD04EE0;
+	constexpr uint32_t Cai_NearbyGeneratorsEnd = 0xD05E00;
+	// void (__thiscall*)(FACTION** attacker, FACTION* target, 17 more dwords), ret 0x48: FACTION::declare_war, where
+	// every war ends (callers 0xADD190 CCQ_DECLARE_WAR, 0xC6DBF0 deals, 0x84A080, 0x722580, 0x7228C0). The callers pass
+	// several 12-byte objects by value, so never skip the call (their destructors run in it).
+	constexpr BuildAddress Faction_DeclareWar{0x83CEA0, 0};
+
 } // namespace sdk::Attila::Addresses

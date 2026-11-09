@@ -23,6 +23,9 @@
 #if TWASE_HAS_SCRIPT_MESSAGES
 #include "Hooks/ScriptMessages.hpp"
 #endif
+#if TWASE_HAS_CAMPAIGN_AI
+#include "Hooks/CampaignAI.hpp"
+#endif
 
 #include <cmath>
 
@@ -873,6 +876,21 @@ int ClearMaxSlots(lua_State* L)
     return 0;
 }
 
+#if TWASE_HAS_SCRIPT_MESSAGES || TWASE_HAS_CAMPAIGN_AI
+// twase.<aName>(handler): stores a function, or nil to remove it, in this state's registry field aKey
+int SetRegistryHandler(lua_State* L, const char* aName, const char* aKey)
+{
+    const int type = LuaRuntime::type(L, 1);
+    if (type != LUA_TFUNCTION && type != LUA_TNIL && type != LUA_TNONE)
+    {
+        return LuaRuntime::error(L, "twase.%s(handler): expects a function or nil", aName);
+    }
+    LuaRuntime::settop(L, 1);
+    LuaRuntime::setfield(L, LUA_REGISTRYINDEX, aKey);
+    return 0;
+}
+#endif
+
 #if TWASE_HAS_SCRIPT_MESSAGES
 // twase.send(text): queues a synced script message from the local faction (Hooks/ScriptMessages.cpp). It runs on
 // every PC of the campaign at the same point of the model. Errors if it can't be sent (no campaign, too long, the
@@ -896,13 +914,29 @@ int Send(lua_State* L)
 // model's command processing. Kept in this state's registry; messages are delivered to the campaign scripts' state.
 int SetMessageHandler(lua_State* L)
 {
-    const int type = LuaRuntime::type(L, 1);
-    if (type != LUA_TFUNCTION && type != LUA_TNIL && type != LUA_TNONE)
-    {
-        return LuaRuntime::error(L, "twase.set_message_handler(handler): expects a function or nil");
-    }
-    LuaRuntime::settop(L, 1);
-    LuaRuntime::setfield(L, LUA_REGISTRYINDEX, Hooks::ScriptMessagesHook::HandlerKey);
+    return SetRegistryHandler(L, "set_message_handler", Hooks::ScriptMessagesHook::HandlerKey);
+}
+#endif
+
+#if TWASE_HAS_CAMPAIGN_AI
+// twase.set_ai_goal_handler(function(goal) return score | false | nil end | nil): called for every goal an AI
+// faction's deal generators build, before the AI picks its deal; goal = {generator, type, owner, target, score, amount,
+// answering}. A number replaces the score, false removes the goal, nil keeps it. Decide from synced state only.
+// Registered only when the hooks are attached.
+int SetAIGoalHandler(lua_State* L)
+{
+    SetRegistryHandler(L, "set_ai_goal_handler", Hooks::CampaignAIHook::GoalHandlerKey); // raises on a bad argument
+    Hooks::CampaignAIHook::HandlerChanged();
+    return 0;
+}
+
+// twase.set_war_declared_handler(function(attacker_key, target_key, caller_rva) end | nil): called on every call of
+// FACTION::declare_war, whatever started it, before the engine checks the pair. caller_rva is a hex string naming the
+// path ("0xADD29B" a CCQ_DECLARE_WAR command such as cm:force_declare_war, "0xC6DD6F" a deal).
+int SetWarDeclaredHandler(lua_State* L)
+{
+    SetRegistryHandler(L, "set_war_declared_handler", Hooks::CampaignAIHook::WarHandlerKey); // raises on a bad argument
+    Hooks::CampaignAIHook::HandlerChanged();
     return 0;
 }
 #endif
@@ -970,6 +1004,14 @@ void Scripting::LuaApi::Register(lua_State* L)
 #if TWASE_HAS_SCRIPT_MESSAGES
     SetFunction(L, "send", &Send);
     SetFunction(L, "set_message_handler", &SetMessageHandler);
+#endif
+#if TWASE_HAS_CAMPAIGN_AI
+    // only with the hooks attached (not on GOG, or after a failed attach), so scripts can test for the functions
+    if (Hooks::CampaignAIHook::IsReady())
+    {
+        SetFunction(L, "set_ai_goal_handler", &SetAIGoalHandler);
+        SetFunction(L, "set_war_declared_handler", &SetWarDeclaredHandler);
+    }
 #endif
 
     // probes for reverse engineering, only with [dev] lua_dev_functions = true

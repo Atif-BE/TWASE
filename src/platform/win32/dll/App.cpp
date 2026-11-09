@@ -13,6 +13,7 @@
 #include "Hooks/NativeRegionTrading.hpp"
 #include "Hooks/CampaignUI.hpp"
 #include "Hooks/ScriptMessages.hpp"
+#include "Hooks/CampaignAI.hpp"
 #include "Hooks/D3D11Hook.hpp"
 #include "Hooks/DInput8Hook.hpp"
 
@@ -189,7 +190,8 @@ void App::Destruct()
         auto success = Hooks::LuaLogHook::Detach() && Hooks::RunStartupPathHook::Detach() &&
                        Hooks::DiplomacyLikelihoodHook::Detach() &&
                        Hooks::NativeRegionTradingHook::Detach() &&
-                       Hooks::CampaignUIHook::Detach() && Hooks::ScriptMessagesHook::Detach();
+                       Hooks::CampaignUIHook::Detach() && Hooks::ScriptMessagesHook::Detach() &&
+                       Hooks::CampaignAIHook::Detach();
         if (success)
         {
             transaction.Commit();
@@ -280,6 +282,9 @@ bool App::AttachHooks(DWORD empireDllAddr)
 
     // synced script messages (twase.send), optional like the campaign UI controls
     Hooks::ScriptMessagesHook::Attach();
+
+    // campaign AI goal and war hooks (twase.set_ai_goal_handler, set_war_declared_handler), optional too
+    Hooks::CampaignAIHook::Attach();
 
     // D3D11 hook is separate (creates its own detour transaction internally)
     auto d3dOk = Hooks::D3D11Hook::Attach();
