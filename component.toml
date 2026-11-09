@@ -1,0 +1,104 @@
+# What this repo contributes to the 1212 release. Read by attila-1212-integration (tools/hub.py); rules in its AGENTS.md.
+# The hub reads every hooked engine address itself (Hook<...>, DetourAttach and PatchBytes in the scanned folders,
+# resolved through Addresses.hpp), so a component names its hooks by address name and the hub checks them.
+
+[repo]
+name = "twase"
+version = { file = "src/core/Version.hpp", regex = 'TWASE_VERSION_STR "([^"]+)"' }
+
+[[provides]]
+kind = "twase"
+addresses = "src/platform/win32/sdk/Attila/Addresses.hpp"
+scan = ["src/platform/win32/dll/Hooks", "src/platform/win32/dll/Patches"]
+targets = ["win-steam-32", "win-gog-32"]  # the field order of BuildAddress {steam, gog}
+release_url = "https://github.com/Atif-BE/TWASE/releases/tag/v{version}"
+
+[[component]]
+id = "twase_console"
+title = "Lua console and the game's Lua log in the console and log files"
+owner = "rfuzzo (upstream)"
+format = ["dll"]
+status = "shipped"
+targets = ["win-steam-32", "win-gog-32", "mac-feral-161", "mac-appstore"]
+mp_safe = "yes"
+docs = "README.md"
+touches = { hooks = ["LuaLog"] }
+
+[[component]]
+id = "twase_script_mods"
+title = "Auto-loads script mods from <campaign>/mods/*/scripting.lua"
+owner = "rfuzzo (upstream)"
+format = ["dll"]
+status = "shipped"
+targets = ["win-steam-32", "win-gog-32", "mac-feral-161", "mac-appstore"]
+mp_safe = "yes"
+docs = "docs/modding/script-mods.md"
+touches = { hooks = ["RunStartupPath"] }
+
+[[component]]
+id = "twase_unit_size_patch"
+title = "Fixes the crash when too many units are spawned (e.g. Fireforged Empire)"
+owner = "rfuzzo (upstream)"
+format = ["dll"]
+status = "shipped"
+targets = ["win-steam-32", "win-gog-32"]
+mp_safe = "yes"
+docs = "patches/patches.md"
+touches = { hooks = ["BitSetCrashAddr"] }
+
+[[component]]
+id = "twase_diplomacy_likelihood"
+title = "Optional: the AI's deal score in the diplomacy likelihood tooltip"
+owner = "Atif-BE"
+format = ["dll"]
+status = "shipped"
+targets = ["win-steam-32", "win-gog-32", "mac-feral-161", "mac-appstore"]
+mp_safe = "yes"
+docs = "docs/engine/diplomacy.md"
+touches = { hooks = ["Diplo_GetDisplayedDealScore", "CAI_GetDealLikelihoodBucket", "DiplomacyDropdown_SetLikelihood"] }
+
+[[component]]
+id = "twase_region_trading"
+title = "twase.enable_region_trading: Gift Region with any settled faction, several regions per deal, Region for Troops"
+owner = "Atif-BE"
+format = ["dll"]
+status = "shipped"
+targets = ["win-steam-32", "win-gog-32", "mac-feral-161", "mac-appstore"]
+mp_safe = "untested"
+docs = "docs/modding/lua-api.md"
+touches = { hooks = ["Faction_GiftableRegions", "DiplomaticAction_RegionTradePossible", "TradeRegions_Execute",
+                     "Diplo_EvaluateDeal", "Diplo_ScoreComponents", "DiplomacyContext_SetRegion",
+                     "DiplomacyDropdown_MakeActionButtons", "DiplomacyDropdown_OnActionButton",
+                     "DiplomacyListTradeRegionsButton_Setup", "TradeRegionsPanel_OnClick", "TradeRegionsPanel_Populate"] }
+
+[[component]]
+id = "twase_campaign_ui"
+title = "Script-controlled encyclopedia URL and settlement-card building-slot limits"
+owner = "Atif-BE"
+format = ["dll"]
+status = "shipped"
+targets = ["win-steam-32", "win-gog-32", "mac-feral-161", "mac-appstore"]
+mp_safe = "yes"
+docs = "docs/modding/lua-api.md"
+# Hooks resolved in the loaded image at run time (no fixed RVA), so nothing to declare here.
+
+[[component]]
+id = "twase_script_messages"
+title = "twase.send: a synced script message carried by CCQ_SET_UNIT_CUSTOM_NAME for unit 0, delivered to a Lua handler on every PC"
+owner = "Atif-BE"
+format = ["dll"]
+status = "testing"
+targets = ["win-steam-32"]
+mp_safe = "yes"
+docs = "docs/engine/commands.md"
+touches = { hooks = ["Ccq_SetUnitCustomName_Handler"] }
+
+[[component]]
+id = "twase_set_faction_capital"
+title = "twase.set_faction_capital: current capital, original capital and capital group (FACTION + 0x890/0x894/0x898)"
+owner = "Atif-BE"
+format = ["dll"]
+status = "testing"
+targets = ["win-steam-32"]
+mp_safe = "untested"
+docs = "docs/modding/lua-api.md"
