@@ -77,6 +77,8 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.task.outputs.prompt }}
+          # never credit Claude in commits or PRs (hub-check refuses AI attribution lines)
+          settings: '{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}'
           claude_args: |
             --max-turns 60
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git commit:*),Bash(python .hub/tools/hub.py:*),Bash(python -m unittest:*)"
