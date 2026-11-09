@@ -1,0 +1,12 @@
+#!/bin/sh
+# Managed by attila-1212-integration (contrib/hooks); change it there and run hub.py sync.
+# A commit that changes code needs a "Component: <id>" (or "Component: none") line. See AGENTS.md.
+ROOT="$(git rev-parse --show-toplevel)"
+HUB="${ATTILA_HUB:-$ROOT/../attila-1212-integration}"
+if [ ! -f "$HUB/tools/hub.py" ]; then
+    echo "commit-msg: the 1212 hub is not at $HUB." >&2
+    echo "Clone https://github.com/Atif-BE/attila-1212-integration next to this repo, or set ATTILA_HUB. See AGENTS.md." >&2
+    exit 1
+fi
+if command -v python >/dev/null 2>&1; then PY=python; else PY=python3; fi
+exec "$PY" "$HUB/tools/hub.py" hook commit-msg "$1" --repo "$ROOT"

@@ -1,0 +1,45 @@
+# Managed by attila-1212-integration (contrib/workflows); change it there and run hub.py sync.
+# When hub-check passes on a pushed claude/<base>/<kind> branch: open its PR into <base> and merge it, except
+# claude/<base>/integrate-* (a contributor's work), which gets the "external" label and waits for a maintainer.
+name: automerge
+
+on:
+  workflow_run:
+    workflows: [hub-check]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'claude/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR and merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          rest="${BRANCH#claude/}"; base="${rest%%/*}"; kind="${rest#*/}"
+          now=$(gh api "repos/$REPO/branches/$BRANCH" -q .commit.sha 2>/dev/null || true)
+          if [ "$now" != "$SHA" ]; then echo "branch moved on since this check ($now), skipping"; exit 0; fi
+          title=$(gh api "repos/$REPO/commits/$SHA" -q '.commit.message' | head -n 1)
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number -q '.[0].number')
+          if [ -z "$pr" ]; then
+            gh pr create -R "$REPO" --base "$base" --head "$BRANCH" --title "$title" \
+              --body "Made by Claude on \`$BRANCH\`. hub-check passed on $SHA."
+          fi
+          case "$kind" in
+            integrate-*)
+              gh label create external -R "$REPO" --color B60205 --description "Work from an outside contributor" --force
+              gh pr edit "$BRANCH" -R "$REPO" --add-label external
+              echo "external work: left for a maintainer's review" ;;
+            *)
+              gh pr merge "$BRANCH" -R "$REPO" --rebase --delete-branch ;;
+          esac

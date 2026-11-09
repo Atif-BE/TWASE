@@ -1,0 +1,41 @@
+# Managed by attila-1212-integration (contrib/workflows); change it there and run hub.py sync.
+# This repo's tree against every other 1212 part at its pinned commit, plus the Component: lines of the new commits.
+name: hub-check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: Atif-BE/attila-1212-integration
+          token: ${{ secrets.SOURCES_TOKEN }}
+          path: .hub
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Access to the 1212 repos
+        env:
+          TOKEN: ${{ secrets.SOURCES_TOKEN }}
+        run: |
+          echo ".hub/" >> .git/info/exclude
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch the pinned parts
+        run: python .hub/tools/hub.py fetch
+      - name: Check
+        env:
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .hub/tools/hub.py ci --repo . --event "$EVENT" --branch "$BRANCH" --base "$BASE" --head "$HEAD"
