@@ -932,7 +932,7 @@ int SetAIGoalHandler(lua_State* L)
 
 // twase.set_war_declared_handler(function(attacker_key, target_key, caller_rva) end | nil): called on every call of
 // FACTION::declare_war, whatever started it, before the engine checks the pair. caller_rva is a hex string naming the
-// path ("0xADD29B" a CCQ_DECLARE_WAR command such as cm:force_declare_war, "0xC6DD6F" a deal).
+// path, as the return address ("0xADD2A0" a CCQ_DECLARE_WAR command such as cm:force_declare_war, "0xC6DD74" a deal).
 int SetWarDeclaredHandler(lua_State* L)
 {
     SetRegistryHandler(L, "set_war_declared_handler", Hooks::CampaignAIHook::WarHandlerKey); // raises on a bad argument

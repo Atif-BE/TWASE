@@ -256,7 +256,7 @@ end);
 
 ### `twase.set_war_declared_handler(handler)`
 
-`handler(attacker_key, target_key, caller_rva)` is called on every call of the engine's `declare_war`, whatever started it, before the engine checks the pair: a call for factions already at war, or a dead faction, declares nothing. `caller_rva` is a hex string naming the path: `"0xADD29B"` a script's `cm:force_declare_war` or a player, `"0xC6DD6F"` a deal, anything else another engine path. It can't stop the war.
+`handler(attacker_key, target_key, caller_rva)` is called on every call of the engine's `declare_war`, whatever started it, before the engine checks the pair: a call for factions already at war, or a dead faction, declares nothing. `caller_rva` is a hex string, the return address of the call (the instruction after it), naming the path: `"0xADD2A0"` a script's `cm:force_declare_war` or a player, `"0xC6DD74"` a deal, anything else another engine path. It can't stop the war.
 
 ## Development probes
 
