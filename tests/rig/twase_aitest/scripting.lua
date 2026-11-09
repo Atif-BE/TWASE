@@ -472,13 +472,18 @@ if plan then
 		end
 	end
 
+	-- Attila's faction interface has no is_dead: a faction is alive while it holds regions or armies
+	local function alive(f)
+		return f:region_list():num_items() > 0 or f:military_force_list():num_items() > 0;
+	end
+
 	local function pick_freeze()
 		local best, best_n = nil, 0;
 		local ok, err = pcall(function()
 			local list = cm:model():world():faction_list();
 			for i = 0, list:num_items() - 1 do
 				local f = list:item_at(i);
-				if not f:is_human() and not f:is_dead() then
+				if not f:is_human() and alive(f) then
 					local n = f:military_force_list():num_items();
 					if n > best_n then
 						best, best_n = f:name(), n;
@@ -496,7 +501,7 @@ if plan then
 	local function freeze_snapshot(t)
 		local ok, err = pcall(function()
 			local f = cm:model():world():faction_by_key(freeze_key);
-			if f:is_null_interface() or f:is_dead() then
+			if f:is_null_interface() or not alive(f) then
 				log(string.format("freeze: turn %d %s dead", t, freeze_key));
 				return;
 			end
