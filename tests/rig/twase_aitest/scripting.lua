@@ -249,15 +249,24 @@ if plan then
 	local freeze_key, last_positions = nil, nil;
 	local done, stuck_logged = false, false;
 
-	-- vanilla's timer (lib_misc_campaign add_callback, a TimeTrigger)
-	local function after(seconds, fn, name)
-		if type(add_callback) == "function" then
-			add_callback(fn, seconds, name);
-		elseif type(cm.callback) == "function" then
-			cm:callback(fn, seconds, name);
-		else
-			log("autopilot: no timer function, running " .. tostring(name) .. " now");
+	-- Timers of our own: a TimeTrigger with a unique string id per call. Vanilla's add_callback reuses numeric ids
+	-- (0, 1, 2, ...), so another script's trigger with the same id ran our callbacks early (rig, 2026-11-09).
+	local pending, timer_count = {}, 0;
+	events.TimeTrigger[#events.TimeTrigger + 1] = function(context)
+		local fn = pending[context.string];
+		if fn then
+			pending[context.string] = nil;
 			fn();
+		end
+	end;
+	local function after(seconds, fn, name)
+		timer_count = timer_count + 1;
+		local id = "twase_aitest_" .. tostring(name) .. "_" .. timer_count;
+		pending[id] = fn;
+		local ok, err = pcall(function() scripting.game_interface:add_time_trigger(id, seconds); end);
+		if not ok then
+			pending[id] = nil;
+			log("autopilot: add_time_trigger failed for " .. tostring(name) .. ": " .. tostring(err));
 		end
 	end
 
@@ -265,40 +274,51 @@ if plan then
 		return scripting and scripting.m_root or nil;
 	end
 
-	-- popups that would wait for the player, pressed whenever they show (each press is logged): { panel, button },
-	-- the button looked up inside the panel when one is given. The event panel's accept is scoped to it, so a
-	-- diplomacy offer's accept is never pressed.
-	local press = { { nil, "button_autoresolve" }, { nil, "button_dismiss" }, { nil, "button_continue" },
-		{ nil, "button_close" }, { nil, "button_ok" }, { "events", "button_accept" } };
+	-- popups that would wait for the player, pressed whenever they show (each press is logged). Each entry is a path of
+	-- component ids, looked up one level at a time and pressed only when every step is visible: a plain Find returns
+	-- the first match anywhere below, which for the events panel is the accept button of its hidden dilemma layout
+	-- (events/event_dilemma/accept/button_accept), not the visible one (rig, 2026-11-09). SimulateLClick: on the
+	-- events panel's visible accept, SimulateClick did nothing and SimulateLClick closed it.
+	local press = {
+		{ "events", "button_set", "accept", "button_accept" },
+		-- an AI's deal offer to the player opens the diplomacy screen and waits; declined, so the runs don't depend on
+		-- what the player accepts (each declined offer can be followed by the next AI's)
+		{ "diplomacy_dropdown", "offers_panel", "button_set2", "button_cancel" },
+		-- a diplomacy notice with only an accept (button_set3); it held the AI turn for minutes (rig, 2026-11-09)
+		{ "diplomacy_dropdown", "offers_panel", "button_set3", "button_accept" },
+		{ "diplomacy_dropdown", "offers_panel", "button_set1", "button_accept" },
+		{ "popup_pre_battle", "button_autoresolve" },
+		{ "button_autoresolve" }, { "button_dismiss" }, { "button_continue" }, { "button_ok" },
+	};
+	local function find_visible(path)
+		local c = ui_root();
+		for _, id in ipairs(path) do
+			local found = c and c:Find(id);
+			if not found then
+				return nil;
+			end
+			c = UIComponent(found);
+			if not c:Visible() then
+				return nil;
+			end
+		end
+		return c;
+	end
 	local function press_popups()
-		local root = ui_root();
-		if not root then
+		if not ui_root() then
 			return;
 		end
-		for _, entry in ipairs(press) do
-			local panel, id = entry[1], entry[2];
+		for _, path in ipairs(press) do
 			local ok, pressed = pcall(function()
-				local parent = root;
-				if panel then
-					parent = root:Find(panel);
-					if not parent or not UIComponent(parent):Visible() then
-						return false;
-					end
-					parent = UIComponent(parent);
-				end
-				local found = parent:Find(id);
-				if not found then
+				local c = find_visible(path);
+				if not c or c:CurrentState() == "inactive" then
 					return false;
 				end
-				local c = UIComponent(found);
-				if not c:Visible() then
-					return false;
-				end
-				c:SimulateClick();
+				c:SimulateLClick();
 				return true;
 			end);
 			if ok and pressed then
-				log("autopilot: pressed " .. (panel and (panel .. "/") or "") .. id .. " (turn " .. turn() .. ")");
+				log("autopilot: pressed " .. table.concat(path, "/") .. " (turn " .. turn() .. ")");
 			end
 		end
 	end
@@ -306,8 +326,9 @@ if plan then
 	-- for a run that stopped moving: every visible component under the UI root, as an indented tree (ids, and the
 	-- state of buttons), so the log names what waits for the player. scripting.m_root is already a UIComponent: wrapping
 	-- it again gave a bad pointer and crashed the game in UIComponent::Visible (rig, 2026-11-09).
-	local function dump_ui()
-		local root = ui_root();
+	local function dump_ui(from, label)
+		local root = from or ui_root();
+		label = label or "stuck, visible UI";
 		if not root then
 			log("autopilot: stuck, no UI root");
 			return;
@@ -329,8 +350,108 @@ if plan then
 			end
 		end
 		local ok, err = pcall(walk, root, 0);
-		log("autopilot: stuck, visible UI" .. (ok and "" or (" (stopped: " .. tostring(err) .. ")")) .. ":\n" ..
+		log("autopilot: " .. label .. (ok and "" or (" (stopped: " .. tostring(err) .. ")")) .. ":\n" ..
 			table.concat(lines, "\n"));
+	end
+
+	-- An event message that requires a response greys out End Turn (rig, 2026-11-09: the events tab's
+	-- "notification" child in state requires_response, End Turn inactive, the messages unread in events_dropdown).
+	-- While that holds: open the unread messages one at a time (events_dropdown > list_box > msg), and in the open
+	-- events panel press accept, then, if the message still waits, its other active buttons in turn. The open panel's
+	-- tree is logged once per turn so the log names its buttons.
+	local function child(c, id)
+		local found = c:Find(id);
+		return found and UIComponent(found) or nil;
+	end
+	local function visible_child(c, id)
+		local found = c and child(c, id);
+		return (found and found:Visible()) and found or nil;
+	end
+	local function needs_response()
+		local root = ui_root();
+		local tab = root and child(root, "tab_events");
+		local note = tab and child(tab, "notification");
+		return note ~= nil and note:CurrentState() == "requires_response";
+	end
+	local skip_buttons = { button_close = true, button_minimise = true, button_info = true, button_encyclopedia = true };
+	local function buttons_in(c, out)
+		for i = 0, c:ChildCount() - 1 do
+			local b = UIComponent(c:Find(i));
+			if b:Visible() then
+				local id = b:Id();
+				if (id:find("^button_") or id:find("choice")) and not skip_buttons[id] and b:CurrentState() == "active" then
+					out[#out + 1] = b;
+				end
+				buttons_in(b, out);
+			end
+		end
+		return out;
+	end
+	local message_index, answer_tries, panel_logged_turn, answered, last_open = 0, 0, nil, false, nil;
+	local function answer_messages()
+		local ok, err = pcall(function()
+			local root = ui_root();
+			local panel = visible_child(root, "events");
+			local dilemma = panel and visible_child(panel, "event_dilemma");
+			-- an open panel is handled every heartbeat, flagged or not: a dilemma can stay open with the events tab no
+			-- longer showing requires_response (rig, 2026-11-09: the first choice click didn't take, the retry came
+			-- only with the next message, 2 minutes later)
+			if not dilemma and not needs_response() then
+				answer_tries = 0;
+				return;
+			end
+			if dilemma then  -- a dilemma: its first choice
+				if panel_logged_turn ~= turn() then
+					panel_logged_turn = turn();
+					dump_ui(dilemma, "a dilemma, its layout:");
+				end
+				local list = buttons_in(dilemma, {});
+				if #list > 0 then
+					local b = list[answer_tries % #list + 1];
+					answer_tries = answer_tries + 1;
+					log("autopilot: dilemma choice " .. b:Id() .. " (turn " .. turn() .. ")");
+					b:SimulateLClick();
+					answered = true;
+				end
+				return;
+			end
+			if panel then
+				if panel_logged_turn ~= turn() then
+					panel_logged_turn = turn();
+					dump_ui(panel, "a message requires a response, its panel:");
+				end
+				answer_tries = answer_tries + 1;
+				if answer_tries > 2 then  -- accept (press_popups) didn't do it: the panel's other buttons, in turn
+					local list = buttons_in(panel, {});
+					if #list > 0 then
+						local b = list[(answer_tries - 3) % #list + 1];
+						log("autopilot: answering with " .. b:Id() .. " (turn " .. turn() .. ")");
+						b:SimulateLClick();
+						answered = true;
+					end
+				end
+				return;
+			end
+			local drop = root:Find("events_dropdown");
+			local box = drop and child(UIComponent(drop), "list_box");
+			if not box or box:ChildCount() == 0 then
+				log("autopilot: a message requires a response, but no message list was found");
+				return;
+			end
+			if last_open and os.time() - last_open < 3 then
+				return;
+			end
+			last_open = os.time();
+			message_index = message_index % box:ChildCount();
+			local msg = UIComponent(box:Find(message_index));
+			message_index = message_index + 1;
+			log("autopilot: opening message " .. message_index .. " of " .. box:ChildCount() .. " (turn " .. turn() .. ")");
+			msg:SimulateLClick();
+			answered = true;
+		end);
+		if not ok then
+			log("autopilot: answering messages failed: " .. tostring(err));
+		end
 	end
 
 	local function pick_freeze()
@@ -387,7 +508,7 @@ if plan then
 		end
 	end
 
-	local player_key = nil;
+	local player_key, last_end_request = nil, nil;
 	local function players_turn()
 		local ok, yes = pcall(function() return cm:model():world():whose_turn_is_it():name() == player_key; end);
 		return ok and yes;
@@ -395,7 +516,10 @@ if plan then
 
 	local function request_end(t)
 		ended_turn = t;
-		end_requested_at = os.time();
+		last_end_request = os.time();
+		if not end_requested_at then
+			end_requested_at = os.time();
+		end
 		mark("end " .. t);
 		press_popups();
 		local ok, err = pcall(function() cm:end_turn(true); end);
@@ -410,11 +534,51 @@ if plan then
 
 	-- every 3 s: press waiting popups; if a requested end turn hasn't come round in 10 minutes (a 1212 AI turn takes up to about 4), log the screen once
 	-- and ask again
+	-- live commands for working out a stuck screen: Lua in twase_aitest_cmd.lua in the game folder is run once (then the
+	-- file is deleted), with AITEST = { root, child, dump, log } for the helpers; its result is logged.
+	AITEST = { root = ui_root, child = child, dump = function(c, label) dump_ui(c, label or "dump:"); end, log = log };
+	local function run_commands()
+		local f = io.open("twase_aitest_cmd.lua", "r");
+		if not f then
+			return;
+		end
+		local code = f:read("*a");
+		f:close();
+		os.remove("twase_aitest_cmd.lua");
+		local fn, err = loadstring(code, "twase_aitest_cmd");
+		if not fn then
+			log("cmd: compile error " .. tostring(err));
+			return;
+		end
+		setfenv(fn, getfenv(1));  -- the mod's environment (scripting, UIComponent, AITEST), not the bare global one
+		local ok, result = pcall(fn);
+		log("cmd: " .. (ok and ("ok " .. tostring(result)) or ("error " .. tostring(result))));
+	end
+
 	local function heartbeat()
 		if done then
 			return;
 		end
+		run_commands();
 		press_popups();
+		answer_messages();
+		-- After a panel is answered the game can sit idle with the end turn not taken (rig, 2026-11-09: stalls of
+		-- minutes that ended 2 s after a second end-turn request, with ai_turns showing the whole time, so ai_turns
+		-- doesn't mean the AI is busy). While an end turn is pending and no panel waits on screen, ask again every 15 s.
+		if end_requested_at and os.time() - (last_end_request or 0) >= 15 then
+			local busy = false;
+			pcall(function()
+				for _, id in ipairs({ "events", "diplomacy_dropdown" }) do
+					if visible_child(ui_root(), id) then
+						busy = true;
+					end
+				end
+			end);
+			if not busy then
+				log("autopilot: no panel open, asking for the end turn again");
+				request_end(ended_turn);
+			end
+		end
 		if end_requested_at and not stuck_logged and os.time() - end_requested_at > 30 and players_turn() then
 			stuck_logged = true;
 			mark("refused " .. tostring(ended_turn));
