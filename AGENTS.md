@@ -9,13 +9,13 @@ The parts are:
 | `attila-1212-mp` | Lua, DB and loc fixes in the fixes pack, the test packs, the 64-bit beta byte patches |
 | `TWASE` | The script extender DLL (Windows) and dylib (Mac) the Lua calls through `twase.*` |
 
-The **hub**, [`attila-1212-integration`](https://github.com/Atif-BE/attila-1212-integration), pins the exact commit of each part that makes up a release. It checks that the parts don't collide. You don't work in the hub; it works on what you commit here.
+The **hub**, [`attila-1212-integration`](https://github.com/Atif-BE/attila-1212-integration), pins the exact commit of each part. Its `develop` branch pins the newest commits that check together; its `main` branch pins what was last released. It checks that the parts don't collide. You don't work in the hub; it works on what you commit here.
 
 > This file is managed by the hub (`contrib/AGENTS.md`), and so are `tools/hooks/*` and `.github/workflows/{hub-check,claude,automerge}.yml`. Don't edit them here; the check fails if they differ. Change them in the hub and run `hub.py sync`.
 
 ## One-time setup
 
-1. Clone the hub next to this repo, so that `../attila-1212-integration` exists. Or set `ATTILA_HUB` to its path.
+1. Clone the hub next to this repo, so that `../attila-1212-integration` exists, and keep it on its `develop` branch. Or set `ATTILA_HUB` to its path.
 2. Turn on the hooks in this clone: `git config core.hooksPath tools/hooks`. Running `python ../attila-1212-integration/tools/hub.py sync .` also does it.
 
 The hooks then run on every commit:
@@ -103,7 +103,7 @@ Nobody has to merge by hand what the checks can prove:
 - **When `hub-check` fails on the tracked branch**, Claude opens a fix on a `claude/hub-fix-…` branch. Typical fixes: a missing claim, a stale managed file, a version bump.
 - **`@claude <request>`** in an issue or comment, from someone with write access, makes Claude do the request on a `claude/issue-…` branch.
 - **Auto-merge.** A `claude/` branch whose `hub-check` passes becomes a PR and is merged into the tracked branch automatically. The exception is `claude/integrate-…`: work ported from an outside contributor gets a PR labelled `external` and waits for a maintainer's approval.
-- **Pins.** The hub moves its pin to the new head of the tracked branch every few hours, after its own check passes.
+- **Pins.** The hub's `develop` moves its pin to the new head of the tracked branch every few hours, after its own check passes. A release is a separate PR in the hub, `develop` → `main`, merged by a maintainer.
 
 ## For Claude running in GitHub Actions
 

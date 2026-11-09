@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Atif-BE/attila-1212-integration
+          ref: develop  # the hub's integration line: the parts as they stand now (main holds the last release)
           token: ${{ secrets.SOURCES_TOKEN }}
           path: .hub
       - uses: actions/setup-python@v5
