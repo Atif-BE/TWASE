@@ -82,18 +82,25 @@ jobs:
           claude_args: |
             --max-turns 60
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git commit:*),Bash(python .hub/tools/hub.py:*),Bash(python3 .hub/tools/hub.py:*),Bash(python -m unittest:*),Bash(python3 -m unittest:*),Bash(ls:*)"
-      - name: Tool calls Claude was refused
+      - name: Claude's answer and refused tool calls
         if: always()
         run: |
           f="$RUNNER_TEMP/claude-execution-output.json"
-          [ -f "$f" ] || { echo "no execution file"; exit 0; }
-          python - "$f" <<'PY'
-          import json, sys
-          data = json.load(open(sys.argv[1]))
-          for m in data if isinstance(data, list) else [data]:
-              if m.get("type") == "result":
-                  for d in m.get("permission_denials") or []:
-                      print("refused:", d.get("tool_name"), json.dumps(d.get("tool_input"))[:300])
+          python - "$f" "$RUNNER_TEMP/claude-summary.md" <<'PY'
+          import json, os, sys
+          src, out = sys.argv[1], sys.argv[2]
+          text, refused = "", []
+          if os.path.isfile(src):
+              data = json.load(open(src))
+              for m in data if isinstance(data, list) else [data]:
+                  if m.get("type") == "result":
+                      text = (m.get("result") or "").strip()
+                      refused = [f"{d.get('tool_name')} {json.dumps(d.get('tool_input'))[:300]}" for d in m.get("permission_denials") or []]
+          body = text[:6000] or "(no final message)"
+          if refused:
+              body += "\n\nRefused tool calls:\n" + "\n".join(f"- `{r}`" for r in refused)
+          open(out, "w").write(body + "\n")
+          print(body)
           PY
       - name: Push the work branch
         id: push
@@ -119,8 +126,9 @@ jobs:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$PUSHED" = "true" ]; then
-            body="Claude pushed \`$BRANCH\`. It is merged into \`$BASE\` automatically once hub-check passes. [Run log]($RUN)"
+            head="Claude pushed \`$BRANCH\`. It is merged into \`$BASE\` automatically once hub-check passes."
           else
-            body="Claude made no commit for this request. Its explanation is at the end of the [run log]($RUN)."
+            head="Claude made no commit for this request."
           fi
-          gh issue comment "$ISSUE" --body "$body"
+          { echo "$head [Run]($RUN)"; echo; cat "$RUNNER_TEMP/claude-summary.md" 2>/dev/null; } > "$RUNNER_TEMP/comment.md"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/comment.md"
