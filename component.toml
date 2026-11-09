@@ -102,3 +102,14 @@ status = "testing"
 targets = ["win-steam-32"]
 mp_safe = "untested"
 docs = "docs/modding/lua-api.md"
+
+[[component]]
+id = "twase_campaign_ai_hooks"
+title = "Experimental: twase.set_ai_goal_handler and twase.set_war_declared_handler"
+owner = "Atif-BE"
+format = ["dll"]
+status = "dev"
+targets = ["win-steam-32"]
+mp_safe = "untested"
+docs = "docs/modding/lua-api.md"
+touches = { hooks = ["Cai_DealGeneration", "Cai_GoalGeneratorBegin", "Cai_Goal_ctor", "Faction_DeclareWar"] }
