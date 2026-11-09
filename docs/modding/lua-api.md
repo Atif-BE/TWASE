@@ -258,6 +258,10 @@ end);
 
 `handler(attacker_key, target_key, caller_rva)` is called on every call of the engine's `declare_war`, whatever started it, before the engine checks the pair: a call for factions already at war, or a dead faction, declares nothing. `caller_rva` is a hex string, the return address of the call (the instruction after it), naming the path: `"0xADD2A0"` a script's `cm:force_declare_war` or a player, `"0xC6DD74"` a deal, anything else another engine path. It can't stop the war.
 
+### `twase.set_ai_faction_manager(faction, manager)`
+
+Sets which manager runs an AI faction's campaign AI and rebuilds it at once, as the console commands `set_cai_faction_manager` and `cai_force_manager_for` do together. `faction` is a faction script interface (`get_cm():model():world():faction_by_key(key)`); `manager` is `"FULL_MANAGER"` (the normal AI), `"MAINTAINANCE_MANAGER"`, `"REBELLION_MANAGER"`, `"END_TURN_MANAGER"`, `"DO_NOTHING_MANAGER"` or `"END_TURN_ALLOW_DIPLOMACY"`. Returns `true`, or `false` and a reason. With `"DO_NOTHING_MANAGER"` the faction stops moving, recruiting and declaring war (rig, 1212 SP). In multiplayer the engine keeps only `END_TURN_MANAGER` and `DO_NOTHING_MANAGER`; call it at the same model point on every PC. `CliExecute("set_cai_faction_manager ...")` doesn't work: `CliExecute` runs startup-script lines (tweakers), not console commands.
+
 ## Development probes
 
 With `lua_dev_functions = true` in the `[dev]` section of `config.ini`, the table also has probes for reverse engineering. They read raw memory and may change or go away in any version; don't use them in mods.

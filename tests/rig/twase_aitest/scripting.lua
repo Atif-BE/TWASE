@@ -11,7 +11,7 @@
 --     aitest_verbose(200)                                log the next 200 goals in full again
 --     aitest_counts()                                    log the goal count of the turn so far
 --   Stock levers, no new TWASE code:
---     aitest_manager("att_fact_visigothi", "DO_NOTHING")  test 0.1: CliExecute("set_cai_faction_manager ...")
+--     aitest_manager("att_fact_visigothi", "DO_NOTHING_MANAGER")  test 0.1: twase.set_ai_faction_manager
 --     aitest_stance("att_fact_visigothi", "att_fact_western_roman_empire")  read the stance between two factions
 --     aitest_promote(a, b, ...)                           cm:cai_strategic_stance_manager_promote_specified_stance_towards_target_faction(a, b, ...)
 --     aitest_war(a, b)                                    cm:force_declare_war(a, b)
@@ -23,7 +23,7 @@
 --        turns, while wars elsewhere go on. Start with an AI that is about to attack X (e.g. a horde next to X, or
 --        aitest_promote towards bitter enemies). Expected anyway: allies called into an existing war on X (other path),
 --        and declare_war calls that declare nothing (already at war). The removed goals are only the AI's own plans.
---   0.1  after aitest_manager(F, "DO_NOTHING"), F stops moving and recruiting, and the end turn still finishes.
+--   0.1  after aitest_manager(F, "DO_NOTHING_MANAGER"), F stops moving and recruiting, and the end turn still finishes.
 
 local log_count = 0;  -- lines logged so far (the autopilot uses it to tell whether a heartbeat did anything)
 local function log(text)
@@ -174,11 +174,18 @@ function aitest_verbose(n)
 	log("logging the next " .. verbose_left .. " goals in full");
 end
 
+-- twase.set_ai_faction_manager (TWASE): CliExecute doesn't run console commands (it runs startup-script lines), so
+-- CliExecute("set_cai_faction_manager ...") did nothing on the rig (2026-11-09)
 function aitest_manager(faction, manager)
-	local command = "set_cai_faction_manager " .. tostring(faction) .. " " .. tostring(manager);
-	local ok, err = pcall(CliExecute, command);
-	log("CliExecute(\"" .. command .. "\"): " .. (ok and "no error" or ("error: " .. tostring(err))) ..
-		". Now end the turn and watch " .. tostring(faction));
+	if not (twase and twase.set_ai_faction_manager) then
+		log("aitest_manager: this TWASE has no set_ai_faction_manager");
+		return;
+	end
+	local ok, set, why = pcall(function()
+		return twase.set_ai_faction_manager(get_cm():model():world():faction_by_key(faction), manager);
+	end);
+	log("set_ai_faction_manager(" .. tostring(faction) .. ", " .. tostring(manager) .. "): " ..
+		(ok and (tostring(set) .. (why and (" " .. why) or "")) or ("error " .. tostring(set))));
 end
 
 function aitest_stance(a, b)
@@ -214,7 +221,7 @@ end
 --   goal_handler  0: unset the goal handler (war logging only)
 --   war_handler   0: unset the war handler
 --   protect       a faction key: AI war goals against it are removed (aitest_protect)
---   freeze        a faction key, or "auto" (the AI faction with the most armies): set to DO_NOTHING on the first turn
+--   freeze        a faction key, or "auto" (the AI faction with the most armies): set to DO_NOTHING_MANAGER on the first turn
 --   verbose       goals logged in full (default 0; per-turn goal stats are always logged)
 -- Progress goes to twase_aitest_marks.txt, one short line per step, which the bench timestamps as they appear.
 local function read_plan()
@@ -661,7 +668,7 @@ if plan then
 				freeze_key = plan.freeze;
 			end
 			if freeze_key then
-				aitest_manager(freeze_key, "DO_NOTHING");
+				aitest_manager(freeze_key, "DO_NOTHING_MANAGER");
 				mark("freeze " .. freeze_key);
 			end
 			heartbeat();
@@ -680,6 +687,10 @@ if plan then
 			mark("done");
 			log("autopilot: done after " .. turns .. " turns");
 			after(3, function() pcall(CliExecute, "quit"); end, "twase_aitest_quit");
+			return;
+		end
+		if plan.hold == "1" then  -- stay on the player's turn, for live tests through twase_aitest_cmd.lua
+			mark("hold " .. t);
 			return;
 		end
 		after(2, function() request_end(t); end, "twase_aitest_end");

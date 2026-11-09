@@ -388,5 +388,21 @@ namespace sdk::Attila::Addresses
 	// every war ends (callers 0xADD190 CCQ_DECLARE_WAR, 0xC6DBF0 deals, 0x84A080, 0x722580, 0x7228C0). The callers pass
 	// several 12-byte objects by value, so never skip the call (their destructors run in it).
 	constexpr BuildAddress Faction_DeclareWar{0x83CEA0, 0};
+	// int (__thiscall*)(CAI_INTERFACE*, CAI_FACTION*, int manager), ret 8: sets the faction's entry in the CAI's manager
+	// override list (CAI + 0x58C count, + 0x590 {CAI_FACTION*, type} pairs), returns the type set. What the console
+	// command set_cai_faction_manager ends in (0xD2F2F0 -> 0xD2F530, which parses the type name in 0xD0DBF0:
+	// FULL_MANAGER 0, MAINTAINANCE_MANAGER 1, REBELLION_MANAGER 2, END_TURN_MANAGER 3, DO_NOTHING_MANAGER 4, HUMAN 6,
+	// END_TURN_ALLOW_DIPLOMACY 8). When 0x90D600 holds, only 3 and 4 are kept, 8 becomes 3 and the rest 2.
+	constexpr BuildAddress Cai_SetFactionManager{0xD2F8C0, 0};
+	// void (__thiscall*)(CAI_INTERFACE*, CAI_FACTION*), ret 4: (re)creates the faction's manager from its override (0xD08DD0,
+	// 9 = none: the default for the faction's kind). The override alone does nothing until this runs: it's what the
+	// console command cai_force_manager_for ends in (0xCDAEC0 -> 0xD006F0 -> 0xD006E0, a jump here).
+	constexpr BuildAddress Cai_InstantiateFactionManager{0xD087B0, 0};
+	// The CAI's faction entries, as 0xCFD6D0 walks them by key: [[CAI + 0x4AC] + 0xA4] is a vector (+8 count, +0xC
+	// CAI_FACTION* array); CAI_FACTION + 0xEC is its FACTION* (0x7A44E0). Passing a FACTION* instead crashed the game.
+	constexpr uint32_t Cai_FactionSet = 0x4AC;
+	constexpr uint32_t CaiFactionSet_List = 0xA4;
+	constexpr uint32_t CaiFactionList_Count = 0x8;
+	constexpr uint32_t CaiFactionList_Data = 0xC;
 
 } // namespace sdk::Attila::Addresses

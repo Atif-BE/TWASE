@@ -930,6 +930,84 @@ int SetAIGoalHandler(lua_State* L)
     return 0;
 }
 
+#if TWASE_HAS_FACTION_ATTITUDE
+// twase.set_ai_faction_manager(faction, manager) -> true, or false and a reason
+// Sets which manager runs the faction's campaign AI, as the console command set_cai_faction_manager does (which
+// CliExecute doesn't reach: it runs startup-script lines, not console commands). manager: "FULL_MANAGER" (the normal
+// AI), "MAINTAINANCE_MANAGER", "REBELLION_MANAGER", "END_TURN_MANAGER", "DO_NOTHING_MANAGER",
+// "END_TURN_ALLOW_DIPLOMACY". A model change: in MP call it at the same model point on every PC.
+int SetAIFactionManager(lua_State* L)
+{
+    using SetManager_t = int(TWASE_THISCALL*)(void* cai, void* caiFaction, int manager);
+    using Instantiate_t = void(TWASE_THISCALL*)(void* cai, void* caiFaction);
+    static const auto setManager = Resolve<SetManager_t>(Addr::Cai_SetFactionManager);
+    static const auto instantiate = Resolve<Instantiate_t>(Addr::Cai_InstantiateFactionManager);
+    struct Manager
+    {
+        const char* name;
+        int type;
+    };
+    static constexpr Manager kManagers[] = {{"FULL_MANAGER", 0},     {"MAINTAINANCE_MANAGER", 1}, {"REBELLION_MANAGER", 2},
+                                            {"END_TURN_MANAGER", 3}, {"DO_NOTHING_MANAGER", 4},  {"END_TURN_ALLOW_DIPLOMACY", 8}};
+
+    void* faction = const_cast<void*>(FactionArg(L, 1));
+    const char* name = LuaRuntime::type(L, 2) == LUA_TSTRING ? LuaRuntime::tolstring(L, 2, nullptr) : nullptr;
+    int type = -1;
+    for (const auto& manager : kManagers)
+    {
+        if (name && std::strcmp(name, manager.name) == 0)
+        {
+            type = manager.type;
+        }
+    }
+    if (type < 0)
+    {
+        return LuaRuntime::error(L, "twase.set_ai_faction_manager(faction, manager): unknown manager %s", name ? name : "(not a string)");
+    }
+    const void* handle = faction ? ReadPtr<const void*>(faction, Addr::Faction_ModelHandle) : nullptr;
+    const void* world = handle ? ReadPtr<const void*>(handle, Addr::ModelHandle_World) : nullptr;
+    void* cai = world ? ReadPtr<void*>(world, Addr::World_CAIInterface) : nullptr;
+    if (!faction || !cai)
+    {
+        LuaRuntime::pushboolean(L, false);
+        LuaRuntime::pushstring(L, faction ? "campaign AI not available" : "not a living faction");
+        return 2;
+    }
+    // the CAI's own entry for the faction: both engine calls take it, not the FACTION*
+    void* caiFaction = nullptr;
+    const void* set_ = ReadPtr<const void*>(cai, Addr::Cai_FactionSet);
+    if (set_)
+    {
+        const auto* list = static_cast<const uint8_t*>(set_) + Addr::CaiFactionSet_List;
+        const auto count = ReadPtr<uint32_t>(list, Addr::CaiFactionList_Count);
+        auto* const* entries = ReadPtr<void* const*>(list, Addr::CaiFactionList_Data);
+        for (uint32_t i = 0; entries && i < count && i < 4096; i++)
+        {
+            if (entries[i] && ReadPtr<const void*>(entries[i], Addr::CaiFaction_Faction) == faction)
+            {
+                caiFaction = entries[i];
+                break;
+            }
+        }
+    }
+    if (!caiFaction)
+    {
+        LuaRuntime::pushboolean(L, false);
+        LuaRuntime::pushstring(L, "the campaign AI has no entry for this faction");
+        return 2;
+    }
+    const int set = setManager(cai, caiFaction, type);
+    instantiate(cai, caiFaction); // the override is only read when the manager is created
+    LuaRuntime::pushboolean(L, set == type);
+    if (set == type)
+    {
+        return 1;
+    }
+    LuaRuntime::pushstring(L, "the engine changed the manager (multiplayer keeps only END_TURN_MANAGER and DO_NOTHING_MANAGER)");
+    return 2;
+}
+#endif
+
 // twase.set_war_declared_handler(function(attacker_key, target_key, caller_rva) end | nil): called on every call of
 // FACTION::declare_war, whatever started it, before the engine checks the pair. caller_rva is a hex string naming the
 // path, as the return address ("0xADD2A0" a CCQ_DECLARE_WAR command such as cm:force_declare_war, "0xC6DD74" a deal).
@@ -1011,6 +1089,9 @@ void Scripting::LuaApi::Register(lua_State* L)
     {
         SetFunction(L, "set_ai_goal_handler", &SetAIGoalHandler);
         SetFunction(L, "set_war_declared_handler", &SetWarDeclaredHandler);
+#if TWASE_HAS_FACTION_ATTITUDE
+        SetFunction(L, "set_ai_faction_manager", &SetAIFactionManager);
+#endif
     }
 #endif
 
