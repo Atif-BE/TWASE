@@ -25,7 +25,9 @@
 --        and declare_war calls that declare nothing (already at war). The removed goals are only the AI's own plans.
 --   0.1  after aitest_manager(F, "DO_NOTHING"), F stops moving and recruiting, and the end turn still finishes.
 
+local log_count = 0;  -- lines logged so far (the autopilot uses it to tell whether a heartbeat did anything)
 local function log(text)
+	log_count = log_count + 1;
 	local line = "[aitest] " .. text;
 	local f = io.open("twase_aitest.log", "a");
 	if f then
@@ -388,7 +390,9 @@ if plan then
 		return out;
 	end
 	local message_index, answer_tries, panel_logged_turn, answered, last_open = 0, 0, nil, false, nil;
+	local answer_exit = "never ran";
 	local function answer_messages()
+		answer_exit = "ran";
 		local ok, err = pcall(function()
 			local root = ui_root();
 			local panel = visible_child(root, "events");
@@ -398,6 +402,7 @@ if plan then
 			-- only with the next message, 2 minutes later)
 			if not dilemma and not needs_response() then
 				answer_tries = 0;
+				answer_exit = "no response needed";
 				return;
 			end
 			if dilemma then  -- a dilemma: its first choice
@@ -416,6 +421,7 @@ if plan then
 				return;
 			end
 			if panel then
+				answer_exit = "events panel open";
 				if panel_logged_turn ~= turn() then
 					panel_logged_turn = turn();
 					dump_ui(panel, "a message requires a response, its panel:");
@@ -439,13 +445,25 @@ if plan then
 				return;
 			end
 			if last_open and os.time() - last_open < 3 then
+				answer_exit = "opened one less than 3 s ago";
 				return;
 			end
 			last_open = os.time();
-			message_index = message_index % box:ChildCount();
-			local msg = UIComponent(box:Find(message_index));
-			message_index = message_index + 1;
-			log("autopilot: opening message " .. message_index .. " of " .. box:ChildCount() .. " (turn " .. turn() .. ")");
+			-- the first unread message (its dy_title in state "unread"), else the next one in turn
+			local pick = nil;
+			for i = 0, box:ChildCount() - 1 do
+				local m = UIComponent(box:Find(i));
+				local title = m:Find("dy_title");
+				if not pick and title and UIComponent(title):CurrentState() == "unread" then
+					pick = i;
+				end
+			end
+			if not pick then
+				pick = message_index % box:ChildCount();
+				message_index = message_index + 1;
+			end
+			local msg = UIComponent(box:Find(pick));
+			log("autopilot: opening message " .. (pick + 1) .. " of " .. box:ChildCount() .. " (turn " .. turn() .. ")");
 			msg:SimulateLClick();
 			answered = true;
 		end);
@@ -555,13 +573,41 @@ if plan then
 		log("cmd: " .. (ok and ("ok " .. tostring(result)) or ("error " .. tostring(result))));
 	end
 
+	local last_action = nil;
+	local heartbeat_body;
 	local function heartbeat()
 		if done then
 			return;
 		end
+		local ok, err = pcall(heartbeat_body);
+		if not ok then
+			log("autopilot: heartbeat error " .. tostring(err));
+		end
+		after(3, heartbeat, "twase_aitest_heartbeat");
+	end
+	heartbeat_body = function()
 		run_commands();
+		local lines_before = log_count;
 		press_popups();
 		answer_messages();
+		if log_count ~= lines_before then
+			last_action = os.time();
+		elseif end_requested_at and os.time() - (last_action or 0) >= 30 then
+			last_action = os.time();
+			local st = {};
+			pcall(function()
+				local root = ui_root();
+				st[#st + 1] = "needs_response " .. tostring(needs_response());
+				for _, id in ipairs({ "events", "diplomacy_dropdown", "ai_turns" }) do
+					st[#st + 1] = id .. " " .. tostring(visible_child(root, id) ~= nil);
+				end
+				st[#st + 1] = "end turn " .. tostring(UIComponent(root:Find("button_end_turn")):CurrentState());
+				st[#st + 1] = "last open " .. tostring(last_open and (os.time() - last_open) or "never") .. " s ago";
+				st[#st + 1] = "last end request " .. tostring(os.time() - (last_end_request or 0)) .. " s ago";
+				st[#st + 1] = "answer_messages: " .. answer_exit;
+			end);
+			log("autopilot: idle 30 s: " .. table.concat(st, ", "));
+		end
 		-- After a panel is answered the game can sit idle with the end turn not taken (rig, 2026-11-09: stalls of
 		-- minutes that ended 2 s after a second end-turn request, with ai_turns showing the whole time, so ai_turns
 		-- doesn't mean the AI is busy). While an end turn is pending and no panel waits on screen, ask again every 15 s.
@@ -591,7 +637,6 @@ if plan then
 			dump_ui();
 			request_end(ended_turn);
 		end
-		after(3, heartbeat, "twase_aitest_heartbeat");
 	end
 
 	local last_turn = nil;
