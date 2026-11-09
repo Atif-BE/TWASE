@@ -89,6 +89,7 @@ Every address belongs to a target id from the hub's `targets.toml`: `win-steam-3
 
 ## Never commit
 
+- **AI attribution of any kind**: no `Co-Authored-By: Claude …` (or any other AI tool), no "Generated with Claude Code", in commits or PR descriptions. The hooks and CI refuse it. AI agents: turn off your tool's default co-author line.
 - Game files, other mods' files or packs, or extracted game data.
 - Built binaries: `.pack`, `.dll`, `.dylib`, a patched game file.
 - Secrets or tokens.
